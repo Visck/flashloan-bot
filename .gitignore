@@ -1,0 +1,46 @@
+# Dependências
+node_modules/
+lib/
+
+# Build outputs
+out/
+cache/
+dist/
+artifacts/
+
+# Arquivos de ambiente (NUNCA commite!)
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Foundry
+cache/
+out/
+broadcast/
+
+# Coverage
+coverage/
+coverage.json
+lcov.info
+
+# TypeScript
+*.tsbuildinfo
+
+# Misc
+*.bak
+*.tmp

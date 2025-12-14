@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(winget search:*)",
+      "Bash(powershell -Command \"Invoke-WebRequest -Uri ''https://github.com/foundry-rs/foundry/releases/latest'' -MaximumRedirection 0 -ErrorAction SilentlyContinue 2>&1 | Select-String -Pattern ''tag/''\")",
+      "Bash(powershell -Command \"New-Item -ItemType Directory -Path \"\"$env:USERPROFILE\\.foundry\\bin\"\" -Force\")",
+      "Bash(curl:*)",
+      "Bash(powershell -Command \"& {\n    $foundryDir = ''C:\\Users\\igovi\\.foundry\\bin''\n    if (!(Test-Path $foundryDir)) { New-Item -ItemType Directory -Path $foundryDir -Force }\n    Set-Location $foundryDir\n    Write-Host ''Baixando Foundry...''\n    Invoke-WebRequest -Uri ''https://github.com/foundry-rs/foundry/releases/download/nightly/foundry_nightly_win32_amd64.zip'' -OutFile ''foundry.zip''\n    Write-Host ''Download concluido!''\n}\")",
+      "Bash(powershell -Command:*)",
+      "Bash(powershell -NoProfile -Command \"[Environment]::SetEnvironmentVariable(''Path'', [Environment]::GetEnvironmentVariable(''Path'', ''User'') + '';C:\\Users\\igovi\\.foundry\\bin'', ''User''); Write-Host ''Done''\")",
+      "Bash(C:Usersigovi.foundrybinforge.exe --version)",
+      "Bash(powershell -NoProfile -Command \"& ''C:\\Users\\igovi\\.foundry\\bin\\forge.exe'' --version\")",
+      "Bash(powershell:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
