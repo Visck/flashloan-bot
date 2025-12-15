@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/bot/index.js",
+    "start:v2": "node dist/bot/indexV2.js",
     "dev": "ts-node bot/index.ts",
+    "dev:v2": "ts-node bot/indexV2.ts",
     "monitor": "ts-node bot/monitor.ts",
     "test:bot": "jest",
     "forge:build": "forge build",
@@ -14,6 +16,8 @@
     "forge:test:fork": "forge test --fork-url $ARBITRUM_RPC_URL -vvv",
     "deploy:testnet": "forge script script/Deploy.s.sol --rpc-url $ARBITRUM_SEPOLIA_RPC_URL --broadcast --verify",
     "deploy:mainnet": "forge script script/Deploy.s.sol --rpc-url $ARBITRUM_RPC_URL --broadcast --verify",
+    "deploy:v2:testnet": "forge script script/DeployV2.s.sol --rpc-url $ARBITRUM_SEPOLIA_RPC_URL --broadcast --verify",
+    "deploy:v2:mainnet": "forge script script/DeployV2.s.sol --rpc-url $ARBITRUM_RPC_URL --broadcast --verify",
     "lint:sol": "forge fmt --check",
     "fmt:sol": "forge fmt"
   },
