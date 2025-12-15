@@ -353,6 +353,8 @@ export class MultiRpcService {
         let lastError: Error | null = null;
 
         for (let attempt = 0; attempt < maxRetries; attempt++) {
+            // Rotaciona RPC a cada tentativa para distribuir carga
+            this.rotateProvider();
             const provider = this.getProvider();
 
             try {
@@ -361,21 +363,40 @@ export class MultiRpcService {
             } catch (error: any) {
                 lastError = error;
 
-                // Se for rate limit ou timeout, marca como não saudável
-                if (
+                // Detecta rate limit (código 429 ou mensagens específicas)
+                const isRateLimit =
+                    error.code === 429 ||
+                    error.status === 429 ||
+                    error.message?.includes('429') ||
                     error.message?.includes('Too Many Requests') ||
                     error.message?.includes('rate limit') ||
-                    error.code === 'TIMEOUT'
-                ) {
+                    error.message?.includes('exceeded') ||
+                    error.message?.includes('compute units') ||
+                    error.code === 'TIMEOUT' ||
+                    error.code === 'NETWORK_ERROR';
+
+                if (isRateLimit) {
                     this.markUnhealthy(provider);
-                    this.rotateProvider();
                 }
 
-                logger.warn(`Tentativa ${attempt + 1}/${maxRetries} falhou: ${error.message}`);
+                // Silencia CALL_EXCEPTION (pool não existe) - é esperado
+                if (!error.message?.includes('CALL_EXCEPTION')) {
+                    logger.warn(`Tentativa ${attempt + 1}/${maxRetries} falhou: ${error.message?.substring(0, 80)}`);
+                }
+
+                // Delay antes da próxima tentativa para evitar rate limit
+                await this.delay(500 * (attempt + 1));
             }
         }
 
         throw lastError || new Error('Todas as tentativas falharam');
+    }
+
+    /**
+     * Delay helper
+     */
+    private delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     /**

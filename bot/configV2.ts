@@ -19,19 +19,22 @@ config();
 // ============================================================================
 
 export const RPC_ENDPOINTS = {
-    // Principal - Alchemy (mais rápido e confiável)
-    primary: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc',
+    // Principal - Usar RPC público estável
+    primary: 'https://arb1.arbitrum.io/rpc',
 
-    // Backups
+    // RPCs gratuitos testados e funcionais (menos é mais estável)
     backups: [
-        'https://arb1.arbitrum.io/rpc',            // Arbitrum público
-        'https://arbitrum.llamarpc.com',           // LlamaRPC
-        'https://rpc.ankr.com/arbitrum',           // Ankr
-        'https://arbitrum.drpc.org',               // dRPC
+        'https://arb1.arbitrum.io/rpc',            // Arbitrum oficial (mais estável)
+        'https://rpc.ankr.com/arbitrum',           // Ankr (confiável)
+        'https://arbitrum-one-rpc.publicnode.com', // PublicNode (bom)
+        'https://1rpc.io/arb',                     // 1RPC (funciona bem)
     ],
 
-    // WebSocket para tempo real - Alchemy
-    websocket: process.env.ARBITRUM_WSS_URL || '',
+    // Alchemy como último recurso
+    alchemy: process.env.ARBITRUM_RPC_URL || '',
+
+    // WebSocket desabilitado
+    websocket: '',
 };
 
 // ============================================================================
@@ -250,55 +253,27 @@ export interface ArbitragePair {
 }
 
 export const ARBITRAGE_PAIRS: ArbitragePair[] = [
-    // === PARES OTIMIZADOS PARA BAIXA LATÊNCIA ===
-    // WETH/USDC - par mais líquido (múltiplos fee tiers)
+    // === PARES SIMPLIFICADOS - APENAS OS MAIS LÍQUIDOS ===
+    // Reduzido para economizar requisições com RPCs gratuitos
+
+    // WETH/USDC - par mais líquido (só fee mais comum)
     {
         tokenA: TOKENS.USDC,
         tokenB: TOKENS.WETH,
         dexes: [DEX.UNISWAP_V3, DEX.SUSHISWAP],
-        uniswapFees: [100, 500, 3000],  // 0.01%, 0.05%, 0.3%
-        minProfitBps: 8,
-        maxAmountUsd: 100000,
-        priority: 1,
-    },
-    // WETH/ARB - alto volume
-    {
-        tokenA: TOKENS.WETH,
-        tokenB: TOKENS.ARB,
-        dexes: [DEX.UNISWAP_V3, DEX.CAMELOT],
-        uniswapFees: [500, 3000, 10000],  // 0.05%, 0.3%, 1%
-        minProfitBps: 10,
+        uniswapFees: [500],  // Apenas 0.05% - pool mais líquido
+        minProfitBps: 15,
         maxAmountUsd: 50000,
         priority: 1,
     },
-    // USDC/USDT - stablecoin arb (baixo risco)
+    // WETH/USDT - segundo mais líquido
     {
-        tokenA: TOKENS.USDC,
-        tokenB: TOKENS.USDT,
-        dexes: [DEX.UNISWAP_V3, DEX.CURVE_2POOL],
-        uniswapFees: [100, 500],
-        minProfitBps: 3,  // Menor threshold para stables
-        maxAmountUsd: 200000,
-        priority: 1,
-    },
-    // WBTC/WETH - alto valor
-    {
-        tokenA: TOKENS.WBTC,
+        tokenA: TOKENS.USDT,
         tokenB: TOKENS.WETH,
-        dexes: [DEX.UNISWAP_V3],
-        uniswapFees: [500, 3000],
-        minProfitBps: 10,
-        maxAmountUsd: 100000,
-        priority: 2,
-    },
-    // USDC.e/USDC - bridged arb
-    {
-        tokenA: TOKENS.USDC_E,
-        tokenB: TOKENS.USDC,
-        dexes: [DEX.UNISWAP_V3],
-        uniswapFees: [100, 500],
-        minProfitBps: 2,  // Muito baixo para stables idênticos
-        maxAmountUsd: 300000,
+        dexes: [DEX.UNISWAP_V3, DEX.SUSHISWAP],
+        uniswapFees: [500],  // Apenas 0.05%
+        minProfitBps: 15,
+        maxAmountUsd: 50000,
         priority: 1,
     },
 ];
@@ -333,33 +308,35 @@ export const TRIANGULAR_ROUTES: TriangularRoute[] = [
 
 export const BOT_CONFIG_V2 = {
     // Lucro
-    minProfitUsd: parseFloat(process.env.MIN_PROFIT_USD || '0.5'),
-    minProfitPercentage: parseFloat(process.env.MIN_PROFIT_PERCENTAGE || '0.1'),
+    minProfitUsd: parseFloat(process.env.MIN_PROFIT_USD || '1.0'),
+    minProfitPercentage: parseFloat(process.env.MIN_PROFIT_PERCENTAGE || '0.3'),
 
     // Limites
-    maxFlashLoanUsd: parseFloat(process.env.MAX_FLASH_LOAN_USD || '100000'),
+    maxFlashLoanUsd: parseFloat(process.env.MAX_FLASH_LOAN_USD || '50000'),
     maxSlippageBps: parseInt(process.env.MAX_SLIPPAGE_BPS || '50'),
-    maxGasPriceGwei: parseFloat(process.env.MAX_GAS_PRICE_GWEI || '5'),
+    maxGasPriceGwei: parseFloat(process.env.MAX_GAS_PRICE_GWEI || '2'),
 
-    // Rate limiting - Estável para Alchemy free tier (sem WebSocket)
-    maxParallelQuotes: 1,  // Cotações sequenciais para evitar rate limit
-    quoteDelayMs: 500,     // 500ms delay entre cotações
+    // Rate limiting - Otimizado para múltiplos RPCs gratuitos
+    maxParallelQuotes: 1,  // Uma cotação por vez para estabilidade
+    quoteDelayMs: 1000,    // 1 segundo entre cotações (evita rate limit)
+    rpcRotationEnabled: true, // Rotaciona entre RPCs a cada requisição
 
-    // Monitoramento
-    monitoringIntervalMs: parseInt(process.env.MONITORING_INTERVAL_MS || '500'),
-    useWebSocket: process.env.USE_WEBSOCKET === 'true',
+    // Monitoramento - Mais conservador para RPCs gratuitos
+    monitoringIntervalMs: parseInt(process.env.MONITORING_INTERVAL_MS || '3000'), // 3 segundos
+    useWebSocket: false,   // Desabilitado para economizar
 
     // Execução
     simulationMode: process.env.SIMULATION_MODE !== 'false',
-    enableTriangular: process.env.ENABLE_TRIANGULAR !== 'false',
-    maxConcurrentChecks: parseInt(process.env.MAX_CONCURRENT_CHECKS || '5'),
+    enableTriangular: false, // Desabilitado para reduzir requisições
+    maxConcurrentChecks: 2,  // Máximo 2 pares por bloco
 
-    // RPCs
-    rpcRetryAttempts: 2,   // Reduzido para economizar rate limit
-    rpcTimeoutMs: 5000,
+    // RPCs - Configuração para múltiplos gratuitos
+    rpcRetryAttempts: 3,   // 3 tentativas com RPCs diferentes
+    rpcTimeoutMs: 10000,   // 10 segundos timeout (RPCs públicos são mais lentos)
+    rotateRpcOnError: true, // Troca de RPC automaticamente em caso de erro
 
     // Proteção MEV
-    useFlashbots: process.env.USE_FLASHBOTS === 'true',
+    useFlashbots: false,
     flashbotsRpc: 'https://rpc.flashbots.net',
 };
 
