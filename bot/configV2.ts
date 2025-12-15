@@ -341,9 +341,9 @@ export const BOT_CONFIG_V2 = {
     maxSlippageBps: parseInt(process.env.MAX_SLIPPAGE_BPS || '50'),
     maxGasPriceGwei: parseFloat(process.env.MAX_GAS_PRICE_GWEI || '5'),
 
-    // Rate limiting - Otimizado para baixa latência
-    maxParallelQuotes: 3,  // Cotações em paralelo para velocidade
-    quoteDelayMs: 200,     // 200ms delay entre cotações (agressivo)
+    // Rate limiting - Balanceado para Alchemy free tier + WebSocket
+    maxParallelQuotes: 2,  // 2 cotações em paralelo (equilibrado)
+    quoteDelayMs: 400,     // 400ms delay entre cotações
 
     // Monitoramento
     monitoringIntervalMs: parseInt(process.env.MONITORING_INTERVAL_MS || '500'),
