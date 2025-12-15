@@ -36,9 +36,9 @@ RUN mkdir -p logs
 # Set environment
 ENV NODE_ENV=production
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "console.log('healthy')" || exit 1
+# Health check desabilitado - bot não é servidor web
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+#   CMD node -e "console.log('healthy')" || exit 1
 
 # Run the bot
 CMD ["node", "dist/bot/indexV2.js"]
