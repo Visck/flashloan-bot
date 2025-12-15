@@ -250,35 +250,55 @@ export interface ArbitragePair {
 }
 
 export const ARBITRAGE_PAIRS: ArbitragePair[] = [
-    // === PARES ESSENCIAIS (Alchemy free tier) ===
-    // Apenas WETH/USDC - par mais líquido e com mais oportunidades
+    // === PARES OTIMIZADOS PARA BAIXA LATÊNCIA ===
+    // WETH/USDC - par mais líquido (múltiplos fee tiers)
     {
         tokenA: TOKENS.USDC,
         tokenB: TOKENS.WETH,
-        dexes: [DEX.UNISWAP_V3],  // Apenas Uniswap V3 para reduzir chamadas
-        uniswapFees: [500],        // Apenas fee de 0.05%
-        minProfitBps: 10,
+        dexes: [DEX.UNISWAP_V3, DEX.SUSHISWAP],
+        uniswapFees: [100, 500, 3000],  // 0.01%, 0.05%, 0.3%
+        minProfitBps: 8,
         maxAmountUsd: 100000,
         priority: 1,
     },
-    // WETH/ARB - segundo par mais importante
+    // WETH/ARB - alto volume
     {
         tokenA: TOKENS.WETH,
         tokenB: TOKENS.ARB,
-        dexes: [DEX.UNISWAP_V3],
-        uniswapFees: [3000],
-        minProfitBps: 15,
+        dexes: [DEX.UNISWAP_V3, DEX.CAMELOT],
+        uniswapFees: [500, 3000, 10000],  // 0.05%, 0.3%, 1%
+        minProfitBps: 10,
         maxAmountUsd: 50000,
         priority: 1,
     },
-    // Stablecoin USDC/USDT - baixo risco
+    // USDC/USDT - stablecoin arb (baixo risco)
     {
         tokenA: TOKENS.USDC,
         tokenB: TOKENS.USDT,
-        dexes: [DEX.UNISWAP_V3],
-        uniswapFees: [100],
-        minProfitBps: 5,
+        dexes: [DEX.UNISWAP_V3, DEX.CURVE_2POOL],
+        uniswapFees: [100, 500],
+        minProfitBps: 3,  // Menor threshold para stables
         maxAmountUsd: 200000,
+        priority: 1,
+    },
+    // WBTC/WETH - alto valor
+    {
+        tokenA: TOKENS.WBTC,
+        tokenB: TOKENS.WETH,
+        dexes: [DEX.UNISWAP_V3],
+        uniswapFees: [500, 3000],
+        minProfitBps: 10,
+        maxAmountUsd: 100000,
+        priority: 2,
+    },
+    // USDC.e/USDC - bridged arb
+    {
+        tokenA: TOKENS.USDC_E,
+        tokenB: TOKENS.USDC,
+        dexes: [DEX.UNISWAP_V3],
+        uniswapFees: [100, 500],
+        minProfitBps: 2,  // Muito baixo para stables idênticos
+        maxAmountUsd: 300000,
         priority: 1,
     },
 ];
@@ -321,9 +341,9 @@ export const BOT_CONFIG_V2 = {
     maxSlippageBps: parseInt(process.env.MAX_SLIPPAGE_BPS || '50'),
     maxGasPriceGwei: parseFloat(process.env.MAX_GAS_PRICE_GWEI || '5'),
 
-    // Rate limiting (evita throttling do RPC - Alchemy free tier)
-    maxParallelQuotes: 1,  // Cotações sequenciais para evitar rate limit
-    quoteDelayMs: 1000,    // 1000ms delay entre cotações (mais conservador)
+    // Rate limiting - Otimizado para baixa latência
+    maxParallelQuotes: 3,  // Cotações em paralelo para velocidade
+    quoteDelayMs: 200,     // 200ms delay entre cotações (agressivo)
 
     // Monitoramento
     monitoringIntervalMs: parseInt(process.env.MONITORING_INTERVAL_MS || '500'),
