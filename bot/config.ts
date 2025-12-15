@@ -392,10 +392,10 @@ export enum DEX {
 export function validateConfig(): void {
     const errors: string[] = [];
 
-    // Verifica RPC URL
-    if (!process.env.ARBITRUM_RPC_URL) {
-        errors.push('ARBITRUM_RPC_URL não configurado');
-    }
+    // RPC URL é opcional - usa RPC público por padrão
+    // if (!process.env.ARBITRUM_RPC_URL) {
+    //     errors.push('ARBITRUM_RPC_URL não configurado');
+    // }
 
     // Verifica chave privada (apenas avisa, não é obrigatório em modo simulação)
     if (!process.env.PRIVATE_KEY && !BOT_CONFIG.simulationMode) {
