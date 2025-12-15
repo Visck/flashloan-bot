@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  flashloan-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flashloan-arbitrage-bot
+    restart: unless-stopped
+    environment:
+      # RPC Configuration
+      - ARBITRUM_RPC_URL=${ARBITRUM_RPC_URL}
+      - ARBITRUM_WSS_URL=${ARBITRUM_WSS_URL}
+
+      # Private Key (KEEP SECURE!)
+      - PRIVATE_KEY=${PRIVATE_KEY}
+
+      # Contract Address
+      - FLASH_LOAN_CONTRACT_ADDRESS=${FLASH_LOAN_CONTRACT_ADDRESS}
+
+      # Bot Configuration
+      - MIN_PROFIT_USD=${MIN_PROFIT_USD:-1.5}
+      - MIN_PROFIT_PERCENTAGE=${MIN_PROFIT_PERCENTAGE:-0.5}
+      - MAX_FLASH_LOAN_USD=${MAX_FLASH_LOAN_USD:-100000}
+      - MAX_SLIPPAGE_BPS=${MAX_SLIPPAGE_BPS:-100}
+      - MAX_GAS_PRICE_GWEI=${MAX_GAS_PRICE_GWEI:-1}
+      - MONITORING_INTERVAL_MS=${MONITORING_INTERVAL_MS:-2000}
+      - SIMULATION_MODE=${SIMULATION_MODE:-false}
+      - USE_WEBSOCKET=${USE_WEBSOCKET:-false}
+      - ENABLE_TRIANGULAR=${ENABLE_TRIANGULAR:-false}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NODE_ENV=production
+    volumes:
+      - ./logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - flashloan-network
+
+networks:
+  flashloan-network:
+    driver: bridge

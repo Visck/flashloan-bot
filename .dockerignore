@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Git
+.git/
+.gitignore
+
+# Environment files (will be set via EasyPanel)
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+
+# Foundry/Solidity (not needed for bot runtime)
+contracts/
+script/
+test/
+lib/
+out/
+cache/
+broadcast/
+foundry.toml
+remappings.txt
+
+# Documentation
+*.md
+LICENSE
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+*.test.ts
+*.spec.ts
+jest.config.js
+coverage/
