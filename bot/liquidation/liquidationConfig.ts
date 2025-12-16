@@ -74,7 +74,7 @@ export const BOT_CONFIG = {
     simulationMode: process.env.SIMULATION_MODE === 'true',
     minProfitUsd: parseFloat(process.env.MIN_PROFIT_USD || '5'),
     maxGasPriceGwei: parseFloat(process.env.MAX_GAS_PRICE_GWEI || '2'),
-    pollingIntervalMs: parseInt(process.env.POLLING_INTERVAL_MS || '2000'),
+    pollingIntervalMs: parseInt(process.env.POLLING_INTERVAL_MS || '1000'),
     maxUsersPerBatch: 100,
     healthFactorThreshold: 1.0,
     maxLiquidationPercent: 0.5, // 50% max por liquidacao
