@@ -233,6 +233,48 @@ export class UserDiscovery {
             await this.wssProvider.destroy();
         }
     }
+
+    saveUsersToFile(): void {
+        try {
+            const possiblePaths = [
+                path.join(process.cwd(), 'data/active-users.json'),
+                path.join(__dirname, '../../data/active-users.json'),
+                path.join(__dirname, '../../../data/active-users.json'),
+            ];
+
+            // Encontra o diretório que existe
+            let dataDir = path.join(process.cwd(), 'data');
+            for (const p of possiblePaths) {
+                const dir = path.dirname(p);
+                if (fs.existsSync(dir)) {
+                    dataDir = dir;
+                    break;
+                }
+            }
+
+            // Cria o diretório se não existir
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir, { recursive: true });
+            }
+
+            const filePath = path.join(dataDir, 'active-users.json');
+            const users = Array.from(this.knownUsers);
+
+            const data = {
+                timestamp: new Date().toISOString(),
+                source: 'Bot Discovery (auto-saved)',
+                network: 'Arbitrum',
+                protocol: this.protocolName,
+                totalUsers: users.length,
+                users: users.map(address => ({ address })),
+            };
+
+            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+            logger.info(`💾 Saved ${users.length} users to ${filePath}`);
+        } catch (error) {
+            logger.warn(`Failed to save users to file: ${error}`);
+        }
+    }
 }
 
 // Lista de usuarios conhecidos com posicoes ativas no Aave V3 Arbitrum

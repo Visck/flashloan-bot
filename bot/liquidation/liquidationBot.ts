@@ -419,6 +419,16 @@ class LiquidationBot {
             }
         }, 15 * 60 * 1000); // 15 minutos
 
+        // Salva usuários no arquivo a cada 30 minutos
+        const saveInterval = setInterval(() => {
+            if (this.isRunning) {
+                logger.info('💾 Saving discovered users to file...');
+                for (const protocol of this.protocols) {
+                    protocol.discovery.saveUsersToFile();
+                }
+            }
+        }, 30 * 60 * 1000); // 30 minutos
+
         // Loop principal
         while (this.isRunning) {
             await this.runCycle();
@@ -427,13 +437,17 @@ class LiquidationBot {
 
         clearInterval(statsInterval);
         clearInterval(discoveryInterval);
+        clearInterval(saveInterval);
     }
 
     async stop(): Promise<void> {
         logger.info('Stopping liquidation bot...');
         this.isRunning = false;
 
+        // Salva usuários descobertos antes de parar
+        logger.info('💾 Saving discovered users before shutdown...');
         for (const protocol of this.protocols) {
+            protocol.discovery.saveUsersToFile();
             protocol.discovery.stopRealTimeDiscovery();
         }
 
