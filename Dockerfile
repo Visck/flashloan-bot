@@ -12,6 +12,7 @@ RUN npm ci
 # Copy source code
 COPY tsconfig.json ./
 COPY bot/ ./bot/
+COPY data/ ./data/
 
 # Build TypeScript
 RUN npm run build
@@ -29,6 +30,9 @@ RUN npm ci --only=production
 
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
+
+# Copy data files (users list)
+COPY --from=builder /app/data ./data
 
 # Create logs directory
 RUN mkdir -p logs
