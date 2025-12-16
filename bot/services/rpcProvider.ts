@@ -118,7 +118,8 @@ export class MultiRpcProvider {
         const startTime = Date.now();
 
         try {
-            const provider = new JsonRpcProvider(endpoint.url);
+            // Usa staticNetwork para evitar detecção automática de rede (causa erros no console)
+            const provider = new JsonRpcProvider(endpoint.url, 42161, { staticNetwork: true });
 
             // Test with timeout
             const timeoutPromise = new Promise((_, reject) =>
@@ -140,7 +141,7 @@ export class MultiRpcProvider {
             endpoint.latency = 9999;
             endpoint.errorCount++;
             endpoint.lastCheck = Date.now();
-            logger.debug(`RPC ${endpoint.name} failed: ${error}`);
+            // Silencioso - não loga erro para cada RPC que falha no teste
         }
     }
 
@@ -152,20 +153,21 @@ export class MultiRpcProvider {
             await this.currentWssProvider.destroy().catch(() => {});
         }
 
-        // Create new provider
-        this.currentProvider = new JsonRpcProvider(endpoint.url);
+        // Create new provider com staticNetwork para evitar erros de detecção
+        this.currentProvider = new JsonRpcProvider(endpoint.url, 42161, { staticNetwork: true });
         this.currentEndpoint = endpoint;
 
+        // WebSocket desabilitado - causa muitos erros com RPCs públicos
         // Setup WebSocket if available
-        if (endpoint.wssUrl) {
-            try {
-                this.currentWssProvider = new WebSocketProvider(endpoint.wssUrl);
-                logger.info(`WebSocket connected: ${endpoint.name}`);
-            } catch (error) {
-                logger.warn(`WebSocket failed for ${endpoint.name}: ${error}`);
-                this.currentWssProvider = null;
-            }
-        }
+        // if (endpoint.wssUrl) {
+        //     try {
+        //         this.currentWssProvider = new WebSocketProvider(endpoint.wssUrl);
+        //         logger.info(`WebSocket connected: ${endpoint.name}`);
+        //     } catch (error) {
+        //         logger.warn(`WebSocket failed for ${endpoint.name}: ${error}`);
+        //         this.currentWssProvider = null;
+        //     }
+        // }
     }
 
     private startHealthMonitoring(): void {

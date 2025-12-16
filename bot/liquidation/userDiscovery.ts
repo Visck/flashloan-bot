@@ -140,6 +140,14 @@ export class UserDiscovery {
     }
 
     async startRealTimeDiscovery(): Promise<void> {
+        // DESABILITADO: Event listeners não funcionam bem com RPCs públicos
+        // Causa erros "filter not found" constantes
+        // Usamos descoberta periódica via discoverFromRecentBlocks() ao invés
+        logger.info(`Real-time discovery disabled for ${this.protocolName} (using periodic discovery instead)`);
+        return;
+
+        // Código original comentado para referência:
+        /*
         if (this.isListening) return;
 
         const contractToUse = this.wssProvider
@@ -173,6 +181,7 @@ export class UserDiscovery {
 
         this.isListening = true;
         logger.info(`Real-time discovery started for ${this.protocolName}`);
+        */
     }
 
     stopRealTimeDiscovery(): void {
