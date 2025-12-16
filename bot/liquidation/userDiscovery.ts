@@ -46,9 +46,17 @@ export class UserDiscovery {
 
     private loadUsersFromFile(): void {
         try {
-            const filePath = path.join(__dirname, '../../data/active-users.json');
+            // Tenta múltiplos caminhos (dev vs produção)
+            const possiblePaths = [
+                path.join(process.cwd(), 'data/active-users.json'),      // Produção: /app/data/
+                path.join(__dirname, '../../data/active-users.json'),    // Dev: bot/liquidation/../../data/
+                path.join(__dirname, '../../../data/active-users.json'), // Compilado: dist/bot/liquidation/../../../data/
+            ];
 
-            if (fs.existsSync(filePath)) {
+            const filePath = possiblePaths.find(p => fs.existsSync(p));
+
+            if (filePath) {
+                logger.info(`Loading users from: ${filePath}`);
                 const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 
                 if (data.users && Array.isArray(data.users)) {
@@ -59,6 +67,8 @@ export class UserDiscovery {
                     }
                     logger.info(`Loaded ${data.users.length} users from cache file`);
                 }
+            } else {
+                logger.warn(`User cache file not found. Tried: ${possiblePaths.join(', ')}`);
             }
         } catch (error) {
             logger.debug(`Could not load users from file: ${error}`);
