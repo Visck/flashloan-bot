@@ -27,16 +27,25 @@ export class Multicall {
         this.contract = new Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, provider);
     }
 
-    async aggregate(calls: Call[]): Promise<CallResult[]> {
-        try {
-            const results = await this.contract.aggregate3.staticCall(calls);
-            return results.map((r: any) => ({
-                success: r.success,
-                returnData: r.returnData
-            }));
-        } catch (error) {
-            throw new Error(`Multicall failed: ${error}`);
+    async aggregate(calls: Call[], retries: number = 2): Promise<CallResult[]> {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                const results = await this.contract.aggregate3.staticCall(calls);
+                return results.map((r: any) => ({
+                    success: r.success,
+                    returnData: r.returnData
+                }));
+            } catch (error) {
+                if (attempt === retries) {
+                    // Retorna resultados vazios ao invés de lançar erro
+                    // Permite que o bot continue funcionando
+                    return calls.map(() => ({ success: false, returnData: '0x' }));
+                }
+                // Espera 500ms antes de tentar novamente
+                await new Promise(r => setTimeout(r, 500));
+            }
         }
+        return calls.map(() => ({ success: false, returnData: '0x' }));
     }
 
     async callMultiple<T>(
