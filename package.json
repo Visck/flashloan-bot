@@ -14,6 +14,8 @@
     "test": "ts-node bot/liquidation/testBot.ts",
     "test:liquidation": "ts-node bot/liquidation/testBot.ts",
     "fetch:users": "ts-node bot/scripts/fetchUsers.ts",
+    "fetch:users:subgraph": "ts-node bot/scripts/fetchUsersSubgraph.ts",
+    "fetch:users:fast": "ts-node bot/scripts/fetchUsersEfficient.ts",
     "monitor": "ts-node bot/monitor.ts",
     "test:bot": "jest",
     "forge:build": "forge build",
