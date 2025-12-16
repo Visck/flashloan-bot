@@ -153,38 +153,56 @@ class LiquidationBot {
                 continue;
             }
 
-            // Processa em batches
+            // Divide em batches
             const batchSize = BOT_CONFIG.maxUsersPerBatch;
+            const batches: string[][] = [];
             for (let i = 0; i < users.length; i += batchSize) {
-                const batch = users.slice(i, i + batchSize);
+                batches.push(users.slice(i, i + batchSize));
+            }
 
-                try {
-                    const accountsData = await protocol.service.getBatchUserAccountData(batch);
-                    this.stats.usersChecked += batch.length;
+            // Processa batches em PARALELO (max 10 simultâneos para não sobrecarregar RPC)
+            const PARALLEL_BATCHES = 10;
+            for (let i = 0; i < batches.length; i += PARALLEL_BATCHES) {
+                const parallelBatches = batches.slice(i, i + PARALLEL_BATCHES);
 
-                    for (const accountData of accountsData) {
-                        if (accountData.healthFactorNum < BOT_CONFIG.healthFactorThreshold) {
-                            const opportunity = await protocol.service.calculateLiquidationOpportunity(
-                                accountData.user,
-                                accountData
-                            );
+                const results = await Promise.allSettled(
+                    parallelBatches.map(async (batch) => {
+                        try {
+                            return await protocol.service.getBatchUserAccountData(batch);
+                        } catch (error) {
+                            return [];
+                        }
+                    })
+                );
 
-                            if (opportunity && opportunity.netProfitUsd >= BOT_CONFIG.minProfitUsd) {
-                                opportunities.push(opportunity);
+                // Processa resultados
+                for (const result of results) {
+                    if (result.status === 'fulfilled' && result.value) {
+                        const accountsData = result.value;
+                        this.stats.usersChecked += accountsData.length;
 
-                                logOpportunity({
-                                    protocol: opportunity.protocol,
-                                    user: opportunity.user,
-                                    healthFactor: opportunity.healthFactor,
-                                    profitUsd: opportunity.netProfitUsd,
-                                    debtAsset: opportunity.debtSymbol,
-                                    collateralAsset: opportunity.collateralSymbol,
-                                });
+                        for (const accountData of accountsData) {
+                            if (accountData.healthFactorNum < BOT_CONFIG.healthFactorThreshold) {
+                                const opportunity = await protocol.service.calculateLiquidationOpportunity(
+                                    accountData.user,
+                                    accountData
+                                );
+
+                                if (opportunity && opportunity.netProfitUsd >= BOT_CONFIG.minProfitUsd) {
+                                    opportunities.push(opportunity);
+
+                                    logOpportunity({
+                                        protocol: opportunity.protocol,
+                                        user: opportunity.user,
+                                        healthFactor: opportunity.healthFactor,
+                                        profitUsd: opportunity.netProfitUsd,
+                                        debtAsset: opportunity.debtSymbol,
+                                        collateralAsset: opportunity.collateralSymbol,
+                                    });
+                                }
                             }
                         }
                     }
-                } catch (error) {
-                    logger.warn(`Error checking batch for ${protocol.name}: ${error}`);
                 }
             }
         }
