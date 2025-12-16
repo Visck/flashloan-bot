@@ -1,11 +1,11 @@
 version: '3.8'
 
 services:
-  flashloan-bot:
+  liquidation-bot:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: flashloan-arbitrage-bot
+    container_name: liquidation-bot
     restart: unless-stopped
     environment:
       # RPC Configuration
@@ -19,29 +19,34 @@ services:
       - FLASH_LOAN_CONTRACT_ADDRESS=${FLASH_LOAN_CONTRACT_ADDRESS}
 
       # Bot Configuration
-      - MIN_PROFIT_USD=${MIN_PROFIT_USD:-1.5}
+      - MIN_PROFIT_USD=${MIN_PROFIT_USD:-0.5}
       - MIN_PROFIT_PERCENTAGE=${MIN_PROFIT_PERCENTAGE:-0.5}
       - MAX_FLASH_LOAN_USD=${MAX_FLASH_LOAN_USD:-100000}
       - MAX_SLIPPAGE_BPS=${MAX_SLIPPAGE_BPS:-100}
       - MAX_GAS_PRICE_GWEI=${MAX_GAS_PRICE_GWEI:-1}
       - MONITORING_INTERVAL_MS=${MONITORING_INTERVAL_MS:-2000}
-      - SIMULATION_MODE=${SIMULATION_MODE:-false}
-      - USE_WEBSOCKET=${USE_WEBSOCKET:-false}
+      - SIMULATION_MODE=${SIMULATION_MODE:-true}
+      - USE_WEBSOCKET=${USE_WEBSOCKET:-true}
       - ENABLE_TRIANGULAR=${ENABLE_TRIANGULAR:-false}
+
+      # Telegram Notifications
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
 
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - NODE_ENV=production
     volumes:
       - ./logs:/app/logs
+      - ./data:/app/data
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
     networks:
-      - flashloan-network
+      - bot-network
 
 networks:
-  flashloan-network:
+  bot-network:
     driver: bridge
