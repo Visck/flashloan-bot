@@ -389,10 +389,24 @@ class LiquidationBot {
             }
         }, 5 * 60 * 1000);
 
-        // Descoberta periódica de novos usuários a cada 15 minutos
-        const discoveryInterval = setInterval(async () => {
+        // Descoberta RÁPIDA de novos usuários a cada 5 segundos (últimos ~20 blocos)
+        const fastDiscoveryInterval = setInterval(async () => {
             if (this.isRunning) {
-                logger.info('🔄 Running periodic user discovery...');
+                for (const protocol of this.protocols) {
+                    try {
+                        // Busca usuários dos últimos 20 blocos (~5 segundos em Arbitrum)
+                        await protocol.discovery.discoverFromRecentBlocks(20);
+                    } catch (error) {
+                        // Silenciosamente ignora erros para não poluir logs
+                    }
+                }
+            }
+        }, 5 * 1000); // 5 segundos
+
+        // Descoberta PROFUNDA de novos usuários a cada 15 minutos
+        const deepDiscoveryInterval = setInterval(async () => {
+            if (this.isRunning) {
+                logger.info('🔄 Running deep user discovery...');
                 const beforeCount = this.protocols.reduce(
                     (sum, p) => sum + p.discovery.getUserCount(), 0
                 );
@@ -402,7 +416,7 @@ class LiquidationBot {
                         // Busca usuários dos últimos 10000 blocos (~40 min em Arbitrum)
                         await protocol.discovery.discoverFromRecentBlocks(10000);
                     } catch (error) {
-                        logger.debug(`Periodic discovery error: ${error}`);
+                        logger.debug(`Deep discovery error: ${error}`);
                     }
                 }
 
@@ -436,7 +450,8 @@ class LiquidationBot {
         }
 
         clearInterval(statsInterval);
-        clearInterval(discoveryInterval);
+        clearInterval(fastDiscoveryInterval);
+        clearInterval(deepDiscoveryInterval);
         clearInterval(saveInterval);
     }
 

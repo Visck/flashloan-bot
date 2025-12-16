@@ -16,6 +16,8 @@
     "fetch:users": "ts-node bot/scripts/fetchUsers.ts",
     "fetch:users:subgraph": "ts-node bot/scripts/fetchUsersSubgraph.ts",
     "fetch:users:fast": "ts-node bot/scripts/fetchUsersEfficient.ts",
+    "fetch:users:max": "ts-node bot/scripts/fetchUsersMax.ts",
+    "fetch:users:filtered": "ts-node bot/scripts/fetchUsersFiltered.ts",
     "monitor": "ts-node bot/monitor.ts",
     "test:bot": "jest",
     "forge:build": "forge build",
