@@ -371,6 +371,36 @@ class LiquidationBot {
             }
         }, 5 * 60 * 1000);
 
+        // Descoberta periódica de novos usuários a cada 15 minutos
+        const discoveryInterval = setInterval(async () => {
+            if (this.isRunning) {
+                logger.info('🔄 Running periodic user discovery...');
+                const beforeCount = this.protocols.reduce(
+                    (sum, p) => sum + p.discovery.getUserCount(), 0
+                );
+
+                for (const protocol of this.protocols) {
+                    try {
+                        // Busca usuários dos últimos 10000 blocos (~40 min em Arbitrum)
+                        await protocol.discovery.discoverFromRecentBlocks(10000);
+                    } catch (error) {
+                        logger.debug(`Periodic discovery error: ${error}`);
+                    }
+                }
+
+                const afterCount = this.protocols.reduce(
+                    (sum, p) => sum + p.discovery.getUserCount(), 0
+                );
+                const newUsers = afterCount - beforeCount;
+
+                if (newUsers > 0) {
+                    logger.info(`✅ Discovered ${newUsers} new users (total: ${afterCount})`);
+                } else {
+                    logger.info(`✅ No new users found (total: ${afterCount})`);
+                }
+            }
+        }, 15 * 60 * 1000); // 15 minutos
+
         // Loop principal
         while (this.isRunning) {
             await this.runCycle();
@@ -378,6 +408,7 @@ class LiquidationBot {
         }
 
         clearInterval(statsInterval);
+        clearInterval(discoveryInterval);
     }
 
     async stop(): Promise<void> {
