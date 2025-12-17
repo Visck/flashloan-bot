@@ -36,7 +36,8 @@
       "Bash(npx tsc:*)",
       "Bash(cat:*)",
       "Bash(forge script:*)",
-      "Bash(set \"PRIVATE_KEY=0xa04caf0ae2048f55e25d148fc2cb67c7098678cef5ea209633e706cfee78bee7\")"
+      "Bash(set \"PRIVATE_KEY=0xa04caf0ae2048f55e25d148fc2cb67c7098678cef5ea209633e706cfee78bee7\")",
+      "WebFetch(domain:arbiscan.io)"
     ],
     "deny": [],
     "ask": []

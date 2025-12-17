@@ -71,11 +71,15 @@ const DEFAULT_CONFIG: SubgraphConfig = {
     incrementalBlocksBack: 1000 // ~4 minutos em Arbitrum
 };
 
-// Alternative endpoints
+// Alternative endpoints (updated Dec 2025)
+// The Graph hosted service was deprecated - using decentralized network + alternatives
 const SUBGRAPH_ENDPOINTS = [
+    // Messari Aave V3 Arbitrum (free, no auth required)
+    'https://api.thegraph.com/subgraphs/name/messari/aave-v3-arbitrum',
+    // Graph Studio (may require API key in future)
+    'https://api.studio.thegraph.com/query/47555/aave-v3-arbitrum/version/latest',
+    // Backup: try original Aave endpoint
     'https://api.thegraph.com/subgraphs/name/aave/protocol-v3-arbitrum',
-    'https://gateway.thegraph.com/api/subgraphs/id/DLuE98kEb5pQNXAcKFQGQgfSQ57Xdou4jnVbAEqMfy3B',
-    'https://api.studio.thegraph.com/query/47555/aave-v3-arbitrum/version/latest'
 ];
 
 // ============================================================================
