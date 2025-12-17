@@ -126,13 +126,16 @@ class LiquidationBot {
                 const service = createLendingService(this.provider, protocolConfig);
                 await service.initialize();
 
-                // Usa o WebSocket do MultiRPC se disponivel
-                const wssProvider = this.multiRpc.getWssProvider();
+                // Usa o WebSocket apenas se USE_WEBSOCKET=true
+                const useWebSocket = process.env.USE_WEBSOCKET !== 'false';
+                const wssProvider = useWebSocket ? this.multiRpc.getWssProvider() : null;
+                const wssUrl = useWebSocket ? this.chainConfig.wssUrl : undefined;
+
                 const discovery = new UserDiscovery(
                     this.provider,
                     protocolConfig.poolAddress,
                     protocolConfig.name,
-                    wssProvider ? undefined : this.chainConfig.wssUrl // Passa URL apenas se nao tiver provider
+                    wssProvider ? undefined : wssUrl // Passa URL apenas se não tiver provider e WebSocket habilitado
                 );
 
                 this.protocols.push({
