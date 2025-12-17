@@ -588,15 +588,15 @@ class LiquidationBot {
             }
         }, OPTIMIZATION_CONFIG.subgraphRefreshMs); // Configurable interval
 
-        // Salva usuários no arquivo a cada 30 minutos
+        // Salva usuários no arquivo a cada 2 minutos (sincronizado com Subgraph refresh)
         const saveInterval = setInterval(() => {
             if (this.isRunning) {
-                logger.info('💾 Saving discovered users to file...');
+                logger.debug('💾 Saving discovered users to file...');
                 for (const protocol of this.protocols) {
                     protocol.discovery.saveUsersToFile();
                 }
             }
-        }, 30 * 60 * 1000); // 30 minutos
+        }, OPTIMIZATION_CONFIG.subgraphRefreshMs); // Mesmo intervalo do Subgraph (2 min)
 
         // Loop principal
         while (this.isRunning) {
