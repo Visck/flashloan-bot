@@ -15,7 +15,7 @@
 import { WebSocketProvider, JsonRpcProvider, Contract, formatUnits } from 'ethers';
 import { EventEmitter } from 'events';
 import { logger } from './logger';
-import { RPC_ENDPOINTS } from './configV2';
+import { RPC_ENDPOINTS } from './configV3';
 
 // ============================================================================
 // TIPOS

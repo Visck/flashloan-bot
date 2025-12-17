@@ -1,14 +1,10 @@
-# Dependências
+# Dependencies
 node_modules/
-lib/
 
-# Build outputs
-out/
-cache/
+# Build
 dist/
-artifacts/
 
-# Arquivos de ambiente (NUNCA commite!)
+# Environment
 .env
 .env.local
 .env.*.local
@@ -16,31 +12,26 @@ artifacts/
 # Logs
 logs/
 *.log
-npm-debug.log*
 
-# Sistema
+# IDE
+.vscode/
+.idea/
+
+# OS
 .DS_Store
 Thumbs.db
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Foundry
+# Cache
+.cache/
 cache/
-out/
-broadcast/
-
-# Coverage
-coverage/
-coverage.json
-lcov.info
-
-# TypeScript
 *.tsbuildinfo
 
-# Misc
-*.bak
-*.tmp
+# Build outputs
+out/
+nul
+
+# Data files (podem conter info sensível)
+data/
+
+# Claude settings
+.claude/

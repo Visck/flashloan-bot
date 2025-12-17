@@ -12,6 +12,7 @@ RUN npm ci
 # Copy source code
 COPY tsconfig.json ./
 COPY bot/ ./bot/
+COPY data/ ./data/
 
 # Build TypeScript
 RUN npm run build
@@ -30,6 +31,9 @@ RUN npm ci --only=production
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
+# Copy data files (users list)
+COPY --from=builder /app/data ./data
+
 # Create logs directory
 RUN mkdir -p logs
 
@@ -40,5 +44,6 @@ ENV NODE_ENV=production
 # HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 #   CMD node -e "console.log('healthy')" || exit 1
 
-# Run the bot
-CMD ["node", "dist/bot/indexV2.js"]
+# Comando padrão - Liquidation Bot
+# Para arbitragem, mude para: node dist/bot/indexV2.js
+CMD ["node", "dist/bot/liquidation/liquidationBot.js"]

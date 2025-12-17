@@ -28,7 +28,11 @@
       "Bash(npm install:*)",
       "Bash(dir:*)",
       "Bash(findstr:*)",
-      "WebFetch(domain:flashloanbot-github.qnf47r.easypanel.host)"
+      "WebFetch(domain:flashloanbot-github.qnf47r.easypanel.host)",
+      "Bash(git stash:*)",
+      "Bash(git fetch:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git merge:*)"
     ],
     "deny": [],
     "ask": []
