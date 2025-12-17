@@ -519,18 +519,25 @@ class LiquidationBot {
         }, 5 * 60 * 1000);
 
         // Descoberta RÁPIDA de novos usuários a cada 5 segundos (últimos ~20 blocos)
-        const fastDiscoveryInterval = setInterval(async () => {
-            if (this.isRunning) {
-                for (const protocol of this.protocols) {
-                    try {
-                        // Busca usuários dos últimos 20 blocos (~5 segundos em Arbitrum)
-                        await protocol.discovery.discoverFromRecentBlocks(20);
-                    } catch (error) {
-                        // Silenciosamente ignora erros para não poluir logs
+        // APENAS se Subgraph estiver DESABILITADO (para economizar CUs)
+        let fastDiscoveryInterval: NodeJS.Timeout | null = null;
+        if (!this.useSubgraph) {
+            logger.info('Fast discovery enabled (Subgraph disabled)');
+            fastDiscoveryInterval = setInterval(async () => {
+                if (this.isRunning) {
+                    for (const protocol of this.protocols) {
+                        try {
+                            // Busca usuários dos últimos 20 blocos (~5 segundos em Arbitrum)
+                            await protocol.discovery.discoverFromRecentBlocks(20);
+                        } catch (error) {
+                            // Silenciosamente ignora erros para não poluir logs
+                        }
                     }
                 }
-            }
-        }, 5 * 1000); // 5 segundos
+            }, 5 * 1000); // 5 segundos
+        } else {
+            logger.info('Fast discovery DISABLED (using Subgraph - saves ~54K CUs/hour)');
+        }
 
         // Descoberta PROFUNDA de novos usuários - usa Subgraph se disponível
         const deepDiscoveryInterval = setInterval(async () => {
@@ -598,7 +605,7 @@ class LiquidationBot {
         }
 
         clearInterval(statsInterval);
-        clearInterval(fastDiscoveryInterval);
+        if (fastDiscoveryInterval) clearInterval(fastDiscoveryInterval);
         clearInterval(deepDiscoveryInterval);
         clearInterval(saveInterval);
     }
