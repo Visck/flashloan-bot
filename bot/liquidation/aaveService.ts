@@ -462,6 +462,12 @@ export class AaveService {
         opportunity: LiquidationOpportunity,
         signer: Wallet
     ): Promise<string | null> {
+        // Usar Flash Loan se contrato configurado
+        if (BOT_CONFIG.flashLoanContractAddress) {
+            return this.executeLiquidationWithFlashLoan(opportunity, signer);
+        }
+
+        // Fallback: liquidação direta (precisa ter tokens)
         if (BOT_CONFIG.simulationMode) {
             logger.info(`[SIMULATION] Would liquidate ${opportunity.user}`);
             return 'SIMULATION_TX_HASH';
@@ -486,6 +492,94 @@ export class AaveService {
             logger.error(`Liquidation failed: ${error}`);
             return null;
         }
+    }
+
+    /**
+     * Executa liquidação usando Flash Loan (não precisa de capital próprio)
+     */
+    async executeLiquidationWithFlashLoan(
+        opportunity: LiquidationOpportunity,
+        signer: Wallet
+    ): Promise<string | null> {
+        if (!BOT_CONFIG.flashLoanContractAddress) {
+            logger.error('Flash loan contract address not configured');
+            return null;
+        }
+
+        if (BOT_CONFIG.simulationMode) {
+            logger.info(`[SIMULATION] Would liquidate ${opportunity.user} with Flash Loan`);
+            return 'SIMULATION_TX_HASH';
+        }
+
+        try {
+            const LIQUIDATOR_ABI = [
+                'function executeLiquidation((address collateralAsset, address debtAsset, address user, uint256 debtToCover, uint24 swapFee, uint256 minProfit) params) external',
+                'function owner() view returns (address)'
+            ];
+
+            const liquidatorContract = new Contract(
+                BOT_CONFIG.flashLoanContractAddress,
+                LIQUIDATOR_ABI,
+                signer
+            );
+
+            // Determina fee do Uniswap baseado nos tokens
+            const swapFee = this.getSwapFee(opportunity.collateralAsset, opportunity.debtAsset);
+
+            // Calcula lucro mínimo (em wei do debt token)
+            const minProfitWei = 0n; // Aceita qualquer lucro positivo
+
+            const params = {
+                collateralAsset: opportunity.collateralAsset,
+                debtAsset: opportunity.debtAsset,
+                user: opportunity.user,
+                debtToCover: opportunity.maxLiquidatableDebt,
+                swapFee: swapFee,
+                minProfit: minProfitWei
+            };
+
+            logger.info(`Executing Flash Loan liquidation for ${opportunity.user}`);
+            logger.info(`  Debt: ${opportunity.debtSymbol} - ${ethers.formatUnits(opportunity.maxLiquidatableDebt, 18)}`);
+            logger.info(`  Collateral: ${opportunity.collateralSymbol}`);
+            logger.info(`  Expected profit: $${opportunity.expectedProfitUsd.toFixed(2)}`);
+
+            const tx = await liquidatorContract.executeLiquidation(params, {
+                gasLimit: 800000n
+            });
+
+            const receipt = await tx.wait();
+            logger.info(`Flash Loan liquidation executed: ${receipt.hash}`);
+
+            return receipt.hash;
+        } catch (error) {
+            logger.error(`Flash Loan liquidation failed: ${error}`);
+            return null;
+        }
+    }
+
+    /**
+     * Determina a fee do Uniswap V3 para o par de tokens
+     */
+    private getSwapFee(tokenA: string, tokenB: string): number {
+        // Stablecoins geralmente usam 100 (0.01%) ou 500 (0.05%)
+        const stablecoins = [
+            '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', // USDC
+            '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8', // USDC.e
+            '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', // USDT
+            '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1'  // DAI
+        ].map(a => a.toLowerCase());
+
+        const aIsStable = stablecoins.includes(tokenA.toLowerCase());
+        const bIsStable = stablecoins.includes(tokenB.toLowerCase());
+
+        // Par de stablecoins: fee baixa
+        if (aIsStable && bIsStable) return 100;
+
+        // Um é stablecoin: fee média
+        if (aIsStable || bIsStable) return 500;
+
+        // Ambos voláteis: fee alta
+        return 3000;
     }
 
     getReserveInfo(address: string): ReserveInfo | undefined {

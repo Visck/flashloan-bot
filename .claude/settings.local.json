@@ -32,7 +32,11 @@
       "Bash(git stash:*)",
       "Bash(git fetch:*)",
       "Bash(git ls-tree:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cat:*)",
+      "Bash(forge script:*)",
+      "Bash(set \"PRIVATE_KEY=0xa04caf0ae2048f55e25d148fc2cb67c7098678cef5ea209633e706cfee78bee7\")"
     ],
     "deny": [],
     "ask": []
