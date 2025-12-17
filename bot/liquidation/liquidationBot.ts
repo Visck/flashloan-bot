@@ -172,8 +172,9 @@ class LiquidationBot {
         // Use SubgraphService if enabled (FREE - no CUs!)
         if (this.useSubgraph && this.subgraphService) {
             try {
-                logger.info('📊 Using Subgraph for FREE user discovery...');
-                const users = await this.subgraphService.fetchAllUsers();
+                logger.info('📊 Using Subgraph for FREE user discovery (AT-RISK only)...');
+                // Usa fetchAtRiskUsers para pegar apenas usuários em risco
+                const users = await this.subgraphService.fetchAtRiskUsers();
                 this.stats.subgraphUsers = users.length;
 
                 // Add discovered users to all protocols
@@ -548,9 +549,9 @@ class LiquidationBot {
 
                 // Usa Subgraph se disponível (GRATUITO!)
                 if (this.useSubgraph && this.subgraphService) {
-                    logger.info('🔄 Refreshing users from Subgraph (FREE)...');
+                    logger.info('🔄 Refreshing AT-RISK users from Subgraph (FREE)...');
                     try {
-                        const users = await this.subgraphService.fetchAllUsers();
+                        const users = await this.subgraphService.fetchAtRiskUsers();
                         this.stats.subgraphUsers = users.length;
 
                         for (const protocol of this.protocols) {

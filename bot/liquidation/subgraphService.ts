@@ -42,6 +42,7 @@ export interface SubgraphConfig {
     batchSize: number;
     minBorrowUsd: number;
     maxHealthFactor: number;
+    maxCollateralRatio: number;  // Filtro: colateral/dívida máximo (ex: 1.8 = ~HF 1.15)
     refreshIntervalMs: number;
     requestTimeoutMs: number;
 }
@@ -55,6 +56,7 @@ const DEFAULT_CONFIG: SubgraphConfig = {
     batchSize: 1000,
     minBorrowUsd: 100,
     maxHealthFactor: 1.5,
+    maxCollateralRatio: 1.8,  // ~HF 1.15 (pega usuários em risco)
     refreshIntervalMs: 60000,
     requestTimeoutMs: 30000
 };
@@ -154,7 +156,103 @@ export class SubgraphService {
     }
 
     /**
+     * Busca APENAS usuários em risco (filtrados por ratio colateral/dívida)
+     * Isso reduz drasticamente a quantidade de usuários a monitorar
+     *
+     * Ratio = totalCollateralUSD / totalBorrowsUSD
+     * - Ratio < 1.5 → Alto risco (provável HF < 1.0)
+     * - Ratio 1.5-1.8 → Médio risco (provável HF 1.0-1.15)
+     * - Ratio > 1.8 → Baixo risco (não interessa)
+     */
+    async fetchAtRiskUsers(): Promise<SubgraphUser[]> {
+        const allUsers: SubgraphUser[] = [];
+        let skip = 0;
+        let hasMore = true;
+
+        logger.info(`Fetching AT-RISK borrowers (ratio < ${this.config.maxCollateralRatio})...`);
+
+        while (hasMore) {
+            const query = `
+                query GetBorrowers($first: Int!, $skip: Int!, $minBorrow: String!) {
+                    users(
+                        first: $first
+                        skip: $skip
+                        where: {
+                            borrowedReservesCount_gt: 0
+                            totalBorrowsUSD_gte: $minBorrow
+                        }
+                        orderBy: totalBorrowsUSD
+                        orderDirection: desc
+                    ) {
+                        id
+                        totalCollateralUSD
+                        totalBorrowsUSD
+                        borrowedReservesCount
+                    }
+                }
+            `;
+
+            try {
+                const data = await this.executeQuery(query, {
+                    first: this.config.batchSize,
+                    skip,
+                    minBorrow: this.config.minBorrowUsd.toString()
+                });
+
+                const users = data?.users || [];
+
+                // Filtra apenas usuários com ratio baixo (em risco)
+                for (const user of users) {
+                    const collateral = parseFloat(user.totalCollateralUSD || '0');
+                    const debt = parseFloat(user.totalBorrowsUSD || '0');
+
+                    if (debt > 0) {
+                        const ratio = collateral / debt;
+
+                        // Só adiciona se ratio < maxCollateralRatio
+                        if (ratio < this.config.maxCollateralRatio) {
+                            allUsers.push({
+                                ...user,
+                                // Adiciona ratio calculado para referência
+                                calculatedRatio: ratio
+                            } as SubgraphUser & { calculatedRatio: number });
+                        }
+                    }
+                }
+
+                if (users.length < this.config.batchSize) {
+                    hasMore = false;
+                } else {
+                    skip += this.config.batchSize;
+                }
+
+                // Rate limiting
+                await this.delay(100);
+            } catch (error) {
+                logger.error('Subgraph fetch error:', error);
+                hasMore = false;
+            }
+        }
+
+        // Ordena por ratio (menor primeiro = mais arriscado)
+        allUsers.sort((a: any, b: any) =>
+            (a.calculatedRatio || 999) - (b.calculatedRatio || 999)
+        );
+
+        // Atualiza cache apenas com usuários em risco
+        this.users.clear();
+        for (const user of allUsers) {
+            this.users.set(user.id.toLowerCase(), user);
+        }
+        this.lastUpdate = new Date();
+
+        logger.info(`Subgraph: ${allUsers.length} AT-RISK borrowers (filtered from all)`);
+        return allUsers;
+    }
+
+    /**
      * Busca usuários em risco (health factor baixo)
+     * @deprecated Use fetchAtRiskUsers() instead
      */
     async fetchRiskyUsers(maxHf: number = 1.5): Promise<SubgraphUser[]> {
         const query = `
@@ -408,7 +506,8 @@ export function createSubgraphService(): SubgraphService {
     const config: Partial<SubgraphConfig> = {
         aaveEndpoint: process.env.AAVE_SUBGRAPH_URL || DEFAULT_CONFIG.aaveEndpoint,
         refreshIntervalMs: parseInt(process.env.SUBGRAPH_REFRESH_INTERVAL_MS || '60000'),
-        minBorrowUsd: parseInt(process.env.SUBGRAPH_MIN_BORROW_USD || '100')
+        minBorrowUsd: parseInt(process.env.SUBGRAPH_MIN_BORROW_USD || '100'),
+        maxCollateralRatio: parseFloat(process.env.MAX_COLLATERAL_RATIO || '1.8')
     };
 
     return new SubgraphService(config);
