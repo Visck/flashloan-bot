@@ -81,6 +81,52 @@ export const BOT_CONFIG = {
     flashLoanContractAddress: process.env.FLASH_LOAN_CONTRACT_ADDRESS,
 };
 
+// ============================================================================
+// OPTIMIZATION CONFIG - Economia de CUs (Alchemy Free Tier)
+// ============================================================================
+
+export type OptimizationPreset = 'free' | 'paid' | 'economy';
+
+export const OPTIMIZATION_CONFIG = {
+    // Preset de otimização
+    preset: (process.env.OPTIMIZATION_PRESET || 'free') as OptimizationPreset,
+
+    // Habilitar tracking de CUs
+    enableCUTracking: process.env.ENABLE_CU_TRACKING !== 'false',
+
+    // Usar Subgraph para descoberta (GRATUITO vs eventos blockchain)
+    useSubgraph: process.env.USE_SUBGRAPH !== 'false',
+
+    // Subgraph URL (The Graph - hospedado, gratuito)
+    subgraphUrl: process.env.AAVE_SUBGRAPH_URL || 'https://api.thegraph.com/subgraphs/name/aave/protocol-v3-arbitrum',
+
+    // Intervalo de refresh do Subgraph em ms
+    subgraphRefreshMs: parseInt(process.env.SUBGRAPH_REFRESH_INTERVAL_MS || '120000'),
+
+    // Valor mínimo de empréstimo para monitorar (USD)
+    subgraphMinBorrowUsd: parseFloat(process.env.SUBGRAPH_MIN_BORROW_USD || '100'),
+
+    // Cache TTLs
+    healthFactorCacheTTL: parseInt(process.env.HF_CACHE_TTL_MS || '2000'),
+    priceCacheTTL: parseInt(process.env.PRICE_CACHE_TTL_MS || '10000'),
+    reserveConfigCacheTTL: parseInt(process.env.RESERVE_CACHE_TTL_MS || '3600000'),
+
+    // Rate limiting
+    maxRequestsPerSecond: parseInt(process.env.MAX_REQUESTS_PER_SECOND || '15'),
+    maxRequestsPerMinute: parseInt(process.env.MAX_REQUESTS_PER_MINUTE || '800'),
+
+    // Priorização por risco
+    criticalHF: parseFloat(process.env.PRIORITY_CRITICAL_HF || '1.0'),
+    highRiskHF: parseFloat(process.env.PRIORITY_HIGH_RISK_HF || '1.05'),
+    mediumRiskHF: parseFloat(process.env.PRIORITY_MEDIUM_RISK_HF || '1.15'),
+
+    // Intervalos de polling por risco
+    criticalPollMs: parseInt(process.env.CRITICAL_POLL_MS || '1000'),
+    highRiskPollMs: parseInt(process.env.HIGH_RISK_POLL_MS || '5000'),
+    mediumRiskPollMs: parseInt(process.env.MEDIUM_RISK_POLL_MS || '30000'),
+    lowRiskPollMs: parseInt(process.env.LOW_RISK_POLL_MS || '120000'),
+};
+
 export const AAVE_POOL_ABI = [
     'function getUserAccountData(address user) external view returns (uint256 totalCollateralBase, uint256 totalDebtBase, uint256 availableBorrowsBase, uint256 currentLiquidationThreshold, uint256 ltv, uint256 healthFactor)',
     'function liquidationCall(address collateralAsset, address debtAsset, address user, uint256 debtToCover, bool receiveAToken) external',

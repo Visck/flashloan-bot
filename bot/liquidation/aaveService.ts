@@ -8,7 +8,11 @@ import {
     ERC20_ABI,
     ProtocolConfig,
     BOT_CONFIG,
+    OPTIMIZATION_CONFIG,
 } from './liquidationConfig';
+import { CacheService, cache } from './cacheService';
+import { RateLimiter, rateLimiter } from './rateLimiter';
+import { cuTracker, CU_COSTS } from './optimizedConfig';
 
 export interface UserAccountData {
     user: string;
@@ -70,6 +74,18 @@ export class AaveService {
     private reservesCache: Map<string, ReserveInfo> = new Map();
     private baseCurrencyUnit: bigint = BigInt(1e8); // USD com 8 decimals
 
+    // Optimization services
+    private cacheService: CacheService = cache;
+    private rateLimiterService: RateLimiter = rateLimiter;
+
+    // Statistics
+    private stats = {
+        cacheHits: 0,
+        cacheMisses: 0,
+        rpcCalls: 0,
+        cusSaved: 0,
+    };
+
     constructor(provider: Provider, config: ProtocolConfig) {
         this.provider = provider;
         this.config = config;
@@ -78,6 +94,12 @@ export class AaveService {
         this.poolContract = new Contract(config.poolAddress, AAVE_POOL_ABI, provider);
         this.dataProviderContract = new Contract(config.poolDataProvider, AAVE_DATA_PROVIDER_ABI, provider);
         this.oracleContract = new Contract(config.oracleAddress, AAVE_ORACLE_ABI, provider);
+
+        // Configure rate limiter based on optimization preset
+        this.rateLimiterService.updateConfig({
+            maxRequestsPerSecond: OPTIMIZATION_CONFIG.maxRequestsPerSecond,
+            maxRequestsPerMinute: OPTIMIZATION_CONFIG.maxRequestsPerMinute,
+        });
     }
 
     async initialize(): Promise<void> {
@@ -155,6 +177,158 @@ export class AaveService {
         }
 
         return results;
+    }
+
+    // ========================================================================
+    // OPTIMIZED METHODS - Com Cache e Rate Limiting
+    // ========================================================================
+
+    /**
+     * Busca dados de conta com cache
+     * Economia: Evita chamadas RPC repetidas para mesmo usuário
+     */
+    async getBatchUserAccountDataOptimized(users: string[]): Promise<UserAccountData[]> {
+        if (users.length === 0) return [];
+
+        const results: UserAccountData[] = [];
+        const uncachedUsers: string[] = [];
+
+        // 1. Verifica cache primeiro
+        for (const user of users) {
+            const cached = this.cacheService.getHealthFactor(user);
+            if (cached !== null) {
+                this.stats.cacheHits++;
+                // Retorna dados parciais do cache (HF é o mais importante)
+                results.push({
+                    user,
+                    totalCollateralBase: 0n,
+                    totalDebtBase: 0n,
+                    availableBorrowsBase: 0n,
+                    currentLiquidationThreshold: 0n,
+                    ltv: 0n,
+                    healthFactor: BigInt(Math.floor(cached * 1e18)),
+                    healthFactorNum: cached,
+                });
+            } else {
+                this.stats.cacheMisses++;
+                uncachedUsers.push(user);
+            }
+        }
+
+        // 2. Busca dados não cacheados via RPC (com rate limiting)
+        if (uncachedUsers.length > 0) {
+            const cusBefore = uncachedUsers.length * CU_COSTS.eth_call;
+
+            try {
+                const freshData = await this.rateLimiterService.execute(async () => {
+                    this.stats.rpcCalls++;
+                    cuTracker.record(CU_COSTS.multicall); // 1 multicall ao invés de N chamadas
+                    return await this.getBatchUserAccountData(uncachedUsers);
+                });
+
+                // Adiciona aos resultados e salva no cache
+                for (const data of freshData) {
+                    results.push(data);
+                    this.cacheService.setHealthFactor(data.user, data.healthFactorNum);
+                }
+
+                // Calcula economia
+                const cusSaved = cusBefore - CU_COSTS.multicall;
+                this.stats.cusSaved += cusSaved;
+
+                if (uncachedUsers.length > 10) {
+                    logger.debug(
+                        `Fetched ${uncachedUsers.length} users via multicall. ` +
+                        `Saved ~${cusSaved} CUs (${((cusSaved / cusBefore) * 100).toFixed(0)}%)`
+                    );
+                }
+            } catch (error) {
+                logger.error('Failed to fetch batch user data:', error);
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Filtra usuários por health factor (usa cache)
+     * Retorna apenas usuários com HF abaixo do threshold
+     */
+    async filterLiquidatableUsers(users: string[]): Promise<string[]> {
+        const accountData = await this.getBatchUserAccountDataOptimized(users);
+        return accountData
+            .filter(data => data.healthFactorNum < BOT_CONFIG.healthFactorThreshold)
+            .map(data => data.user);
+    }
+
+    /**
+     * Classifica usuários por nível de risco
+     */
+    async classifyUsersByRisk(users: string[]): Promise<{
+        critical: string[];   // HF < 1.0
+        highRisk: string[];   // HF < 1.05
+        mediumRisk: string[]; // HF < 1.15
+        lowRisk: string[];    // HF >= 1.15
+    }> {
+        const accountData = await this.getBatchUserAccountDataOptimized(users);
+
+        const critical: string[] = [];
+        const highRisk: string[] = [];
+        const mediumRisk: string[] = [];
+        const lowRisk: string[] = [];
+
+        for (const data of accountData) {
+            const hf = data.healthFactorNum;
+            if (hf < OPTIMIZATION_CONFIG.criticalHF) {
+                critical.push(data.user);
+            } else if (hf < OPTIMIZATION_CONFIG.highRiskHF) {
+                highRisk.push(data.user);
+            } else if (hf < OPTIMIZATION_CONFIG.mediumRiskHF) {
+                mediumRisk.push(data.user);
+            } else {
+                lowRisk.push(data.user);
+            }
+        }
+
+        return { critical, highRisk, mediumRisk, lowRisk };
+    }
+
+    /**
+     * Retorna estatísticas de otimização
+     */
+    getOptimizationStats(): {
+        cacheHits: number;
+        cacheMisses: number;
+        cacheHitRate: number;
+        rpcCalls: number;
+        cusSaved: number;
+    } {
+        const total = this.stats.cacheHits + this.stats.cacheMisses;
+        const hitRate = total > 0 ? (this.stats.cacheHits / total) * 100 : 0;
+
+        return {
+            ...this.stats,
+            cacheHitRate: Math.round(hitRate * 100) / 100,
+        };
+    }
+
+    /**
+     * Limpa cache de um usuário específico (após liquidação)
+     */
+    invalidateUserCache(user: string): void {
+        this.cacheService.delete(`hf:${user.toLowerCase()}`);
+    }
+
+    /**
+     * Limpa todas as estatísticas
+     */
+    resetStats(): void {
+        this.stats = {
+            cacheHits: 0,
+            cacheMisses: 0,
+            rpcCalls: 0,
+            cusSaved: 0,
+        };
     }
 
     async getUserReserves(user: string): Promise<UserReserveData[]> {
