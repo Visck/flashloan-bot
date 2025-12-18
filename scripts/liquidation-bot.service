@@ -1,0 +1,62 @@
+# Liquidation Bot V2 - Systemd Service File
+#
+# Instalar:
+#   sudo cp liquidation-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable liquidation-bot
+#   sudo systemctl start liquidation-bot
+#
+# Comandos:
+#   sudo systemctl start liquidation-bot    # Iniciar
+#   sudo systemctl stop liquidation-bot     # Parar
+#   sudo systemctl restart liquidation-bot  # Reiniciar
+#   sudo systemctl status liquidation-bot   # Status
+#   journalctl -u liquidation-bot -f        # Ver logs
+
+[Unit]
+Description=Liquidation Bot V2 - Multi-Chain
+Documentation=https://github.com/Visck/flashloan-bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# Diretório do bot
+WorkingDirectory=/opt/liquidation-bot
+
+# Comando para iniciar
+# --max-old-space-size=16384 = 16GB de memória para Node.js
+ExecStart=/usr/bin/node --max-old-space-size=16384 -r ts-node/register bot/liquidation/liquidationBotV2.ts
+
+# Reiniciar automaticamente se crashar
+Restart=always
+RestartSec=10
+
+# Timeout para parar gracefully
+TimeoutStopSec=30
+
+# Limites de recursos
+LimitNOFILE=65536
+LimitNPROC=65536
+
+# Variáveis de ambiente
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=liquidation-bot
+
+# Segurança
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/liquidation-bot/data /opt/liquidation-bot/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

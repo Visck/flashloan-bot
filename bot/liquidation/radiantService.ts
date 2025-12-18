@@ -1,6 +1,7 @@
 import { Provider, Wallet } from 'ethers';
 import { AaveService, LiquidationOpportunity, UserAccountData, ReserveInfo } from './aaveService';
 import { ProtocolConfig } from './liquidationConfig';
+import { ProtocolConfig as ProtocolConfigV2 } from './liquidationConfigV2';
 import { logger } from '../services/logger';
 
 // Radiant usa a mesma interface do Aave V2/V3, entao podemos extender AaveService
@@ -33,15 +34,31 @@ export class RadiantService extends AaveService {
 }
 
 // Factory para criar o servico correto baseado no tipo
+// Aceita tanto ProtocolConfig V1 quanto V2
 export function createLendingService(
     provider: Provider,
-    config: ProtocolConfig
+    config: ProtocolConfig | ProtocolConfigV2
 ): AaveService | RadiantService {
+    // Converte para o tipo base que AaveService espera
+    const baseConfig: ProtocolConfig = {
+        name: config.name,
+        type: config.type === 'aave' || config.type === 'radiant' ? config.type : 'aave',
+        poolAddress: config.poolAddress,
+        poolDataProvider: config.poolDataProvider,
+        oracleAddress: config.oracleAddress,
+        liquidationBonus: config.liquidationBonus,
+        enabled: config.enabled,
+    };
+
     switch (config.type) {
         case 'radiant':
-            return new RadiantService(provider, config);
+            return new RadiantService(provider, baseConfig);
         case 'aave':
+        case 'compound':
+        case 'silo':
         default:
-            return new AaveService(provider, config);
+            // Para compound e silo, usamos AaveService como base
+            // TODO: Criar serviços específicos se necessário
+            return new AaveService(provider, baseConfig);
     }
 }
