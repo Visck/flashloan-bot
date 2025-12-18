@@ -117,29 +117,55 @@ export class AaveService {
 
     private async loadReserves(): Promise<void> {
         const reserveTokens = await this.dataProviderContract.getAllReservesTokens();
+        logger.info(`Found ${reserveTokens.length} reserves to load...`);
 
-        for (const token of reserveTokens) {
-            try {
-                const [configData, price] = await Promise.all([
-                    this.dataProviderContract.getReserveConfigurationData(token.tokenAddress),
-                    this.oracleContract.getAssetPrice(token.tokenAddress),
-                ]);
+        // Carrega reserves em paralelo, com batches para evitar rate limiting
+        const batchSize = 5;
+        for (let i = 0; i < reserveTokens.length; i += batchSize) {
+            const batch = reserveTokens.slice(i, i + batchSize);
 
-                const reserveInfo: ReserveInfo = {
-                    address: token.tokenAddress,
-                    symbol: token.symbol,
-                    decimals: Number(configData.decimals),
-                    liquidationBonus: Number(configData.liquidationBonus) / 100, // basis points to %
-                    liquidationThreshold: Number(configData.liquidationThreshold) / 100,
-                    ltv: Number(configData.ltv) / 100,
-                    priceUsd: Number(price) / Number(this.baseCurrencyUnit),
-                };
+            await Promise.all(batch.map(async (token: { symbol: string; tokenAddress: string }) => {
+                // Retry logic com até 3 tentativas
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        // Carrega config e preço em paralelo
+                        const [configData, price] = await Promise.all([
+                            this.dataProviderContract.getReserveConfigurationData(token.tokenAddress),
+                            this.oracleContract.getAssetPrice(token.tokenAddress),
+                        ]);
 
-                this.reservesCache.set(token.tokenAddress.toLowerCase(), reserveInfo);
-            } catch (error) {
-                logger.warn(`Failed to load reserve ${token.symbol}: ${error}`);
+                        const reserveInfo: ReserveInfo = {
+                            address: token.tokenAddress,
+                            symbol: token.symbol,
+                            decimals: Number(configData[0]), // decimals é o primeiro elemento
+                            liquidationBonus: Number(configData[3]) / 100, // basis points to %
+                            liquidationThreshold: Number(configData[2]) / 100,
+                            ltv: Number(configData[1]) / 100,
+                            priceUsd: Number(price) / Number(this.baseCurrencyUnit),
+                        };
+
+                        this.reservesCache.set(token.tokenAddress.toLowerCase(), reserveInfo);
+                        logger.debug(`✓ Loaded reserve ${token.symbol}`);
+                        return; // Sucesso, sai do retry loop
+
+                    } catch (error: any) {
+                        if (attempt < 3) {
+                            logger.debug(`Retry ${attempt}/3 for ${token.symbol}...`);
+                            await new Promise(r => setTimeout(r, 500 * attempt)); // Backoff
+                        } else {
+                            logger.warn(`Failed to load reserve ${token.symbol} after 3 attempts: ${error.message || error}`);
+                        }
+                    }
+                }
+            }));
+
+            // Pequeno delay entre batches para evitar rate limiting
+            if (i + batchSize < reserveTokens.length) {
+                await new Promise(r => setTimeout(r, 100));
             }
         }
+
+        logger.info(`Successfully loaded ${this.reservesCache.size}/${reserveTokens.length} reserves`);
     }
 
     async getUserAccountData(user: string): Promise<UserAccountData> {

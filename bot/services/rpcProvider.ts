@@ -118,8 +118,8 @@ export class MultiRpcProvider {
         const startTime = Date.now();
 
         try {
-            // Usa staticNetwork para evitar detecção automática de rede (causa erros no console)
-            const provider = new JsonRpcProvider(endpoint.url, 42161, { staticNetwork: true });
+            // Detecta chainId automaticamente para suportar multi-chain
+            const provider = new JsonRpcProvider(endpoint.url);
 
             // Test with timeout
             const timeoutPromise = new Promise((_, reject) =>
@@ -153,8 +153,8 @@ export class MultiRpcProvider {
             await this.currentWssProvider.destroy().catch(() => {});
         }
 
-        // Create new provider com staticNetwork para evitar erros de detecção
-        this.currentProvider = new JsonRpcProvider(endpoint.url, 42161, { staticNetwork: true });
+        // Create new provider - detecta chainId automaticamente
+        this.currentProvider = new JsonRpcProvider(endpoint.url);
         this.currentEndpoint = endpoint;
 
         // WebSocket desabilitado - causa muitos erros com RPCs públicos
