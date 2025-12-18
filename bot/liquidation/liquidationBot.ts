@@ -5,10 +5,16 @@ import { ethers, JsonRpcProvider, Wallet } from 'ethers';
 import { logger, logOpportunity, logExecution } from '../services/logger';
 import { MultiRpcProvider } from '../services/rpcProvider';
 import { telegram } from '../services/telegram';
-import { CHAINS, BOT_CONFIG, ChainConfig } from './liquidationConfig';
+import { CHAINS, BOT_CONFIG, ChainConfig, OPTIMIZATION_CONFIG } from './liquidationConfig';
 import { AaveService, LiquidationOpportunity } from './aaveService';
 import { createLendingService } from './radiantService';
 import { UserDiscovery } from './userDiscovery';
+
+// Optimization modules
+import { SubgraphService, createSubgraphService } from './subgraphService';
+import { cache } from './cacheService';
+import { rateLimiter } from './rateLimiter';
+import { cuTracker, getConfigForPlan } from './optimizedConfig';
 
 interface ProtocolContext {
     service: AaveService;
@@ -23,6 +29,20 @@ class LiquidationBot {
     private chainConfig: ChainConfig;
     private protocols: ProtocolContext[] = [];
     private isRunning: boolean = false;
+
+    // Optimization services
+    private subgraphService?: SubgraphService;
+    private cuTrackingInterval?: NodeJS.Timeout;
+    private useSubgraph: boolean = OPTIMIZATION_CONFIG.useSubgraph;
+
+    // Classified users by risk level
+    private classifiedUsers = {
+        critical: [] as string[],
+        highRisk: [] as string[],
+        mediumRisk: [] as string[],
+        lowRisk: [] as string[],
+    };
+
     private stats = {
         cyclesRun: 0,
         usersChecked: 0,
@@ -31,6 +51,10 @@ class LiquidationBot {
         totalProfitUsd: 0,
         startTime: Date.now(),
         rpcFailovers: 0,
+        // Optimization stats
+        cusSaved: 0,
+        cacheHits: 0,
+        subgraphUsers: 0,
     };
 
     constructor(chain: string = 'arbitrum') {
@@ -40,6 +64,16 @@ class LiquidationBot {
         }
 
         this.chainConfig = config;
+
+        // Configure optimization based on preset
+        const optimConfig = getConfigForPlan(OPTIMIZATION_CONFIG.preset);
+        rateLimiter.updateConfig({
+            maxRequestsPerSecond: optimConfig.maxRequestsPerSecond,
+            maxRequestsPerMinute: optimConfig.maxRequestsPerMinute,
+        });
+
+        logger.info(`Optimization preset: ${OPTIMIZATION_CONFIG.preset}`);
+        logger.info(`Using Subgraph for discovery: ${this.useSubgraph}`);
     }
 
     private async initializeRpc(): Promise<void> {
@@ -92,13 +126,16 @@ class LiquidationBot {
                 const service = createLendingService(this.provider, protocolConfig);
                 await service.initialize();
 
-                // Usa o WebSocket do MultiRPC se disponivel
-                const wssProvider = this.multiRpc.getWssProvider();
+                // Usa o WebSocket apenas se USE_WEBSOCKET=true
+                const useWebSocket = process.env.USE_WEBSOCKET !== 'false';
+                const wssProvider = useWebSocket ? this.multiRpc.getWssProvider() : null;
+                const wssUrl = useWebSocket ? this.chainConfig.wssUrl : undefined;
+
                 const discovery = new UserDiscovery(
                     this.provider,
                     protocolConfig.poolAddress,
                     protocolConfig.name,
-                    wssProvider ? undefined : this.chainConfig.wssUrl // Passa URL apenas se nao tiver provider
+                    wssProvider ? undefined : wssUrl // Passa URL apenas se não tiver provider e WebSocket habilitado
                 );
 
                 this.protocols.push({
@@ -118,11 +155,50 @@ class LiquidationBot {
         }
 
         logger.info(`Initialized ${this.protocols.length} protocols`);
+
+        // Initialize SubgraphService for FREE user discovery
+        if (this.useSubgraph) {
+            try {
+                this.subgraphService = createSubgraphService();
+                logger.info('SubgraphService initialized (FREE user discovery)');
+            } catch (error) {
+                logger.warn(`Failed to initialize SubgraphService: ${error}`);
+                logger.info('Falling back to event-based discovery');
+                this.useSubgraph = false;
+            }
+        }
     }
 
     async discoverUsers(): Promise<void> {
         logger.info('Discovering users with active positions...');
 
+        // Use SubgraphService if enabled (FREE - no CUs!)
+        if (this.useSubgraph && this.subgraphService) {
+            try {
+                logger.info('📊 Using Subgraph for FREE user discovery (AT-RISK only)...');
+                // Usa fetchAtRiskUsers para pegar apenas usuários em risco
+                const users = await this.subgraphService.fetchAtRiskUsers();
+                this.stats.subgraphUsers = users.length;
+
+                // Add discovered users to all protocols
+                for (const protocol of this.protocols) {
+                    for (const user of users) {
+                        protocol.discovery.addUser(user.id);
+                    }
+                    logger.info(`${protocol.name}: ${protocol.discovery.getUserCount()} users from Subgraph (0 CUs used!)`);
+                }
+
+                // Classify users by risk from subgraph data
+                await this.classifyUsersFromSubgraph(users);
+
+                return;
+            } catch (error) {
+                logger.warn(`Subgraph discovery failed: ${error}`);
+                logger.info('Falling back to event-based discovery...');
+            }
+        }
+
+        // Fallback: Event-based discovery (uses CUs)
         for (const protocol of this.protocols) {
             try {
                 await protocol.discovery.discoverFromRecentBlocks(5000);
@@ -131,6 +207,37 @@ class LiquidationBot {
                 logger.error(`Failed to discover users for ${protocol.name}: ${error}`);
             }
         }
+    }
+
+    /**
+     * Classifica usuários por risco usando dados do Subgraph
+     * Isso evita chamadas RPC para classificação inicial
+     */
+    private async classifyUsersFromSubgraph(users: any[]): Promise<void> {
+        this.classifiedUsers = {
+            critical: [],
+            highRisk: [],
+            mediumRisk: [],
+            lowRisk: [],
+        };
+
+        for (const user of users) {
+            // Subgraph não retorna health factor diretamente, então
+            // precisamos calcular baseado em totalCollateral e totalDebt
+            // ou buscar via RPC apenas para usuários de alto valor
+            const hasDebt = user.reserves?.some((r: any) =>
+                parseFloat(r.currentTotalDebt || '0') > 0
+            );
+
+            if (hasDebt) {
+                // Adiciona à lista de alto risco para verificação via RPC
+                this.classifiedUsers.highRisk.push(user.id);
+            } else {
+                this.classifiedUsers.lowRisk.push(user.id);
+            }
+        }
+
+        logger.info(`Classified from Subgraph: ${this.classifiedUsers.highRisk.length} with debt, ${this.classifiedUsers.lowRisk.length} collateral-only`);
     }
 
     async startRealTimeDiscovery(): Promise<void> {
@@ -160,15 +267,18 @@ class LiquidationBot {
                 batches.push(users.slice(i, i + batchSize));
             }
 
-            // Processa batches em PARALELO (max 10 simultâneos para não sobrecarregar RPC)
-            const PARALLEL_BATCHES = 10;
+            // Processa batches usando método OTIMIZADO (com cache e rate limiting)
+            // Menos batches em paralelo para respeitar rate limits
+            const PARALLEL_BATCHES = OPTIMIZATION_CONFIG.preset === 'free' ? 3 : 10;
+
             for (let i = 0; i < batches.length; i += PARALLEL_BATCHES) {
                 const parallelBatches = batches.slice(i, i + PARALLEL_BATCHES);
 
                 const results = await Promise.allSettled(
                     parallelBatches.map(async (batch) => {
                         try {
-                            return await protocol.service.getBatchUserAccountData(batch);
+                            // Usa método otimizado com cache
+                            return await protocol.service.getBatchUserAccountDataOptimized(batch);
                         } catch (error) {
                             return [];
                         }
@@ -205,6 +315,11 @@ class LiquidationBot {
                     }
                 }
             }
+
+            // Update optimization stats
+            const optStats = protocol.service.getOptimizationStats();
+            this.stats.cusSaved += optStats.cusSaved;
+            this.stats.cacheHits += optStats.cacheHits;
         }
 
         return opportunities;
@@ -349,6 +464,24 @@ class LiquidationBot {
         const rpcStatus = this.multiRpc.getStatus();
         const healthyCount = rpcStatus.filter(r => r.healthy).length;
         logger.info(`RPC Health: ${healthyCount}/${rpcStatus.length} endpoints healthy`);
+
+        // Optimization Stats
+        logger.info('-'.repeat(60));
+        logger.info('OPTIMIZATION STATS (CU Savings)');
+        logger.info('-'.repeat(60));
+        logger.info(`Subgraph Users: ${this.stats.subgraphUsers}`);
+        logger.info(`Cache Hits: ${this.stats.cacheHits}`);
+        logger.info(`CUs Saved: ~${this.stats.cusSaved.toLocaleString()}`);
+
+        const cuStats = cuTracker.getStats();
+        logger.info(`CU Usage: ${cuStats.usedThisHour.toLocaleString()}/h (${cuStats.percentUsedThisHour.toFixed(1)}%)`);
+        logger.info(`Daily Budget: ${cuStats.usedToday.toLocaleString()}/${cuStats.remainingToday.toLocaleString() + cuStats.usedToday} (${cuStats.percentUsedToday.toFixed(1)}%)`);
+
+        const cacheStats = cache.getStats();
+        logger.info(`Cache: ${cacheStats.entries} entries, ${cacheStats.hitRate.toFixed(1)}% hit rate`);
+
+        const rlStats = rateLimiter.getStats();
+        logger.info(`Rate Limiter: ${rlStats.throttleRate.toFixed(1)}% throttled`);
         logger.info('='.repeat(60));
     }
 
@@ -390,33 +523,59 @@ class LiquidationBot {
         }, 5 * 60 * 1000);
 
         // Descoberta RÁPIDA de novos usuários a cada 5 segundos (últimos ~20 blocos)
-        const fastDiscoveryInterval = setInterval(async () => {
-            if (this.isRunning) {
-                for (const protocol of this.protocols) {
-                    try {
-                        // Busca usuários dos últimos 20 blocos (~5 segundos em Arbitrum)
-                        await protocol.discovery.discoverFromRecentBlocks(20);
-                    } catch (error) {
-                        // Silenciosamente ignora erros para não poluir logs
+        // APENAS se Subgraph estiver DESABILITADO (para economizar CUs)
+        let fastDiscoveryInterval: NodeJS.Timeout | null = null;
+        if (!this.useSubgraph) {
+            logger.info('Fast discovery enabled (Subgraph disabled)');
+            fastDiscoveryInterval = setInterval(async () => {
+                if (this.isRunning) {
+                    for (const protocol of this.protocols) {
+                        try {
+                            // Busca usuários dos últimos 20 blocos (~5 segundos em Arbitrum)
+                            await protocol.discovery.discoverFromRecentBlocks(20);
+                        } catch (error) {
+                            // Silenciosamente ignora erros para não poluir logs
+                        }
                     }
                 }
-            }
-        }, 5 * 1000); // 5 segundos
+            }, 5 * 1000); // 5 segundos
+        } else {
+            logger.info('Fast discovery DISABLED (using Subgraph - saves ~54K CUs/hour)');
+        }
 
-        // Descoberta PROFUNDA de novos usuários a cada 15 minutos
+        // Descoberta PROFUNDA de novos usuários - usa Subgraph se disponível
         const deepDiscoveryInterval = setInterval(async () => {
             if (this.isRunning) {
-                logger.info('🔄 Running deep user discovery...');
                 const beforeCount = this.protocols.reduce(
                     (sum, p) => sum + p.discovery.getUserCount(), 0
                 );
 
-                for (const protocol of this.protocols) {
+                // Usa Subgraph se disponível (GRATUITO!)
+                if (this.useSubgraph && this.subgraphService) {
+                    logger.info('🔄 Refreshing AT-RISK users from Subgraph (FREE)...');
                     try {
-                        // Busca usuários dos últimos 10000 blocos (~40 min em Arbitrum)
-                        await protocol.discovery.discoverFromRecentBlocks(10000);
+                        const users = await this.subgraphService.fetchAtRiskUsers();
+                        this.stats.subgraphUsers = users.length;
+
+                        for (const protocol of this.protocols) {
+                            for (const user of users) {
+                                protocol.discovery.addUser(user.id);
+                            }
+                        }
+
+                        await this.classifyUsersFromSubgraph(users);
                     } catch (error) {
-                        logger.debug(`Deep discovery error: ${error}`);
+                        logger.debug(`Subgraph refresh error: ${error}`);
+                    }
+                } else {
+                    // Fallback: Event-based discovery
+                    logger.info('🔄 Running deep user discovery...');
+                    for (const protocol of this.protocols) {
+                        try {
+                            await protocol.discovery.discoverFromRecentBlocks(10000);
+                        } catch (error) {
+                            logger.debug(`Deep discovery error: ${error}`);
+                        }
                     }
                 }
 
@@ -431,17 +590,17 @@ class LiquidationBot {
                     logger.info(`✅ No new users found (total: ${afterCount})`);
                 }
             }
-        }, 15 * 60 * 1000); // 15 minutos
+        }, OPTIMIZATION_CONFIG.subgraphRefreshMs); // Configurable interval
 
-        // Salva usuários no arquivo a cada 30 minutos
+        // Salva usuários no arquivo a cada 2 minutos (sincronizado com Subgraph refresh)
         const saveInterval = setInterval(() => {
             if (this.isRunning) {
-                logger.info('💾 Saving discovered users to file...');
+                logger.debug('💾 Saving discovered users to file...');
                 for (const protocol of this.protocols) {
                     protocol.discovery.saveUsersToFile();
                 }
             }
-        }, 30 * 60 * 1000); // 30 minutos
+        }, OPTIMIZATION_CONFIG.subgraphRefreshMs); // Mesmo intervalo do Subgraph (2 min)
 
         // Loop principal
         while (this.isRunning) {
@@ -450,7 +609,7 @@ class LiquidationBot {
         }
 
         clearInterval(statsInterval);
-        clearInterval(fastDiscoveryInterval);
+        if (fastDiscoveryInterval) clearInterval(fastDiscoveryInterval);
         clearInterval(deepDiscoveryInterval);
         clearInterval(saveInterval);
     }

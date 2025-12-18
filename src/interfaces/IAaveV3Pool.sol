@@ -95,6 +95,22 @@ interface IAaveV3Pool {
      * @return Dados da reserva incluindo liquidez, taxas, etc.
      */
     function getReserveData(address asset) external view returns (DataTypes.ReserveData memory);
+
+    /**
+     * @notice Executa liquidação de uma posição
+     * @param collateralAsset Token de colateral a receber
+     * @param debtAsset Token de dívida a pagar
+     * @param user Endereço do usuário a ser liquidado
+     * @param debtToCover Quantidade de dívida a cobrir
+     * @param receiveAToken Se true, recebe aToken ao invés do token subjacente
+     */
+    function liquidationCall(
+        address collateralAsset,
+        address debtAsset,
+        address user,
+        uint256 debtToCover,
+        bool receiveAToken
+    ) external;
 }
 
 /**

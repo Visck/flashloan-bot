@@ -8,7 +8,11 @@ import {
     ERC20_ABI,
     ProtocolConfig,
     BOT_CONFIG,
+    OPTIMIZATION_CONFIG,
 } from './liquidationConfig';
+import { CacheService, cache } from './cacheService';
+import { RateLimiter, rateLimiter } from './rateLimiter';
+import { cuTracker, CU_COSTS } from './optimizedConfig';
 
 export interface UserAccountData {
     user: string;
@@ -70,6 +74,18 @@ export class AaveService {
     private reservesCache: Map<string, ReserveInfo> = new Map();
     private baseCurrencyUnit: bigint = BigInt(1e8); // USD com 8 decimals
 
+    // Optimization services
+    private cacheService: CacheService = cache;
+    private rateLimiterService: RateLimiter = rateLimiter;
+
+    // Statistics
+    private stats = {
+        cacheHits: 0,
+        cacheMisses: 0,
+        rpcCalls: 0,
+        cusSaved: 0,
+    };
+
     constructor(provider: Provider, config: ProtocolConfig) {
         this.provider = provider;
         this.config = config;
@@ -78,6 +94,12 @@ export class AaveService {
         this.poolContract = new Contract(config.poolAddress, AAVE_POOL_ABI, provider);
         this.dataProviderContract = new Contract(config.poolDataProvider, AAVE_DATA_PROVIDER_ABI, provider);
         this.oracleContract = new Contract(config.oracleAddress, AAVE_ORACLE_ABI, provider);
+
+        // Configure rate limiter based on optimization preset
+        this.rateLimiterService.updateConfig({
+            maxRequestsPerSecond: OPTIMIZATION_CONFIG.maxRequestsPerSecond,
+            maxRequestsPerMinute: OPTIMIZATION_CONFIG.maxRequestsPerMinute,
+        });
     }
 
     async initialize(): Promise<void> {
@@ -155,6 +177,158 @@ export class AaveService {
         }
 
         return results;
+    }
+
+    // ========================================================================
+    // OPTIMIZED METHODS - Com Cache e Rate Limiting
+    // ========================================================================
+
+    /**
+     * Busca dados de conta com cache
+     * Economia: Evita chamadas RPC repetidas para mesmo usuário
+     */
+    async getBatchUserAccountDataOptimized(users: string[]): Promise<UserAccountData[]> {
+        if (users.length === 0) return [];
+
+        const results: UserAccountData[] = [];
+        const uncachedUsers: string[] = [];
+
+        // 1. Verifica cache primeiro
+        for (const user of users) {
+            const cached = this.cacheService.getHealthFactor(user);
+            if (cached !== null) {
+                this.stats.cacheHits++;
+                // Retorna dados parciais do cache (HF é o mais importante)
+                results.push({
+                    user,
+                    totalCollateralBase: 0n,
+                    totalDebtBase: 0n,
+                    availableBorrowsBase: 0n,
+                    currentLiquidationThreshold: 0n,
+                    ltv: 0n,
+                    healthFactor: BigInt(Math.floor(cached * 1e18)),
+                    healthFactorNum: cached,
+                });
+            } else {
+                this.stats.cacheMisses++;
+                uncachedUsers.push(user);
+            }
+        }
+
+        // 2. Busca dados não cacheados via RPC (com rate limiting)
+        if (uncachedUsers.length > 0) {
+            const cusBefore = uncachedUsers.length * CU_COSTS.eth_call;
+
+            try {
+                const freshData = await this.rateLimiterService.execute(async () => {
+                    this.stats.rpcCalls++;
+                    cuTracker.record(CU_COSTS.multicall); // 1 multicall ao invés de N chamadas
+                    return await this.getBatchUserAccountData(uncachedUsers);
+                });
+
+                // Adiciona aos resultados e salva no cache
+                for (const data of freshData) {
+                    results.push(data);
+                    this.cacheService.setHealthFactor(data.user, data.healthFactorNum);
+                }
+
+                // Calcula economia
+                const cusSaved = cusBefore - CU_COSTS.multicall;
+                this.stats.cusSaved += cusSaved;
+
+                if (uncachedUsers.length > 10) {
+                    logger.debug(
+                        `Fetched ${uncachedUsers.length} users via multicall. ` +
+                        `Saved ~${cusSaved} CUs (${((cusSaved / cusBefore) * 100).toFixed(0)}%)`
+                    );
+                }
+            } catch (error) {
+                logger.error('Failed to fetch batch user data:', error);
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Filtra usuários por health factor (usa cache)
+     * Retorna apenas usuários com HF abaixo do threshold
+     */
+    async filterLiquidatableUsers(users: string[]): Promise<string[]> {
+        const accountData = await this.getBatchUserAccountDataOptimized(users);
+        return accountData
+            .filter(data => data.healthFactorNum < BOT_CONFIG.healthFactorThreshold)
+            .map(data => data.user);
+    }
+
+    /**
+     * Classifica usuários por nível de risco
+     */
+    async classifyUsersByRisk(users: string[]): Promise<{
+        critical: string[];   // HF < 1.0
+        highRisk: string[];   // HF < 1.05
+        mediumRisk: string[]; // HF < 1.15
+        lowRisk: string[];    // HF >= 1.15
+    }> {
+        const accountData = await this.getBatchUserAccountDataOptimized(users);
+
+        const critical: string[] = [];
+        const highRisk: string[] = [];
+        const mediumRisk: string[] = [];
+        const lowRisk: string[] = [];
+
+        for (const data of accountData) {
+            const hf = data.healthFactorNum;
+            if (hf < OPTIMIZATION_CONFIG.criticalHF) {
+                critical.push(data.user);
+            } else if (hf < OPTIMIZATION_CONFIG.highRiskHF) {
+                highRisk.push(data.user);
+            } else if (hf < OPTIMIZATION_CONFIG.mediumRiskHF) {
+                mediumRisk.push(data.user);
+            } else {
+                lowRisk.push(data.user);
+            }
+        }
+
+        return { critical, highRisk, mediumRisk, lowRisk };
+    }
+
+    /**
+     * Retorna estatísticas de otimização
+     */
+    getOptimizationStats(): {
+        cacheHits: number;
+        cacheMisses: number;
+        cacheHitRate: number;
+        rpcCalls: number;
+        cusSaved: number;
+    } {
+        const total = this.stats.cacheHits + this.stats.cacheMisses;
+        const hitRate = total > 0 ? (this.stats.cacheHits / total) * 100 : 0;
+
+        return {
+            ...this.stats,
+            cacheHitRate: Math.round(hitRate * 100) / 100,
+        };
+    }
+
+    /**
+     * Limpa cache de um usuário específico (após liquidação)
+     */
+    invalidateUserCache(user: string): void {
+        this.cacheService.delete(`hf:${user.toLowerCase()}`);
+    }
+
+    /**
+     * Limpa todas as estatísticas
+     */
+    resetStats(): void {
+        this.stats = {
+            cacheHits: 0,
+            cacheMisses: 0,
+            rpcCalls: 0,
+            cusSaved: 0,
+        };
     }
 
     async getUserReserves(user: string): Promise<UserReserveData[]> {
@@ -288,6 +462,12 @@ export class AaveService {
         opportunity: LiquidationOpportunity,
         signer: Wallet
     ): Promise<string | null> {
+        // Usar Flash Loan se contrato configurado
+        if (BOT_CONFIG.flashLoanContractAddress) {
+            return this.executeLiquidationWithFlashLoan(opportunity, signer);
+        }
+
+        // Fallback: liquidação direta (precisa ter tokens)
         if (BOT_CONFIG.simulationMode) {
             logger.info(`[SIMULATION] Would liquidate ${opportunity.user}`);
             return 'SIMULATION_TX_HASH';
@@ -312,6 +492,94 @@ export class AaveService {
             logger.error(`Liquidation failed: ${error}`);
             return null;
         }
+    }
+
+    /**
+     * Executa liquidação usando Flash Loan (não precisa de capital próprio)
+     */
+    async executeLiquidationWithFlashLoan(
+        opportunity: LiquidationOpportunity,
+        signer: Wallet
+    ): Promise<string | null> {
+        if (!BOT_CONFIG.flashLoanContractAddress) {
+            logger.error('Flash loan contract address not configured');
+            return null;
+        }
+
+        if (BOT_CONFIG.simulationMode) {
+            logger.info(`[SIMULATION] Would liquidate ${opportunity.user} with Flash Loan`);
+            return 'SIMULATION_TX_HASH';
+        }
+
+        try {
+            const LIQUIDATOR_ABI = [
+                'function executeLiquidation((address collateralAsset, address debtAsset, address user, uint256 debtToCover, uint24 swapFee, uint256 minProfit) params) external',
+                'function owner() view returns (address)'
+            ];
+
+            const liquidatorContract = new Contract(
+                BOT_CONFIG.flashLoanContractAddress,
+                LIQUIDATOR_ABI,
+                signer
+            );
+
+            // Determina fee do Uniswap baseado nos tokens
+            const swapFee = this.getSwapFee(opportunity.collateralAsset, opportunity.debtAsset);
+
+            // Calcula lucro mínimo (em wei do debt token)
+            const minProfitWei = 0n; // Aceita qualquer lucro positivo
+
+            const params = {
+                collateralAsset: opportunity.collateralAsset,
+                debtAsset: opportunity.debtAsset,
+                user: opportunity.user,
+                debtToCover: opportunity.maxLiquidatableDebt,
+                swapFee: swapFee,
+                minProfit: minProfitWei
+            };
+
+            logger.info(`Executing Flash Loan liquidation for ${opportunity.user}`);
+            logger.info(`  Debt: ${opportunity.debtSymbol} - ${ethers.formatUnits(opportunity.maxLiquidatableDebt, 18)}`);
+            logger.info(`  Collateral: ${opportunity.collateralSymbol}`);
+            logger.info(`  Expected profit: $${opportunity.expectedProfitUsd.toFixed(2)}`);
+
+            const tx = await liquidatorContract.executeLiquidation(params, {
+                gasLimit: 800000n
+            });
+
+            const receipt = await tx.wait();
+            logger.info(`Flash Loan liquidation executed: ${receipt.hash}`);
+
+            return receipt.hash;
+        } catch (error) {
+            logger.error(`Flash Loan liquidation failed: ${error}`);
+            return null;
+        }
+    }
+
+    /**
+     * Determina a fee do Uniswap V3 para o par de tokens
+     */
+    private getSwapFee(tokenA: string, tokenB: string): number {
+        // Stablecoins geralmente usam 100 (0.01%) ou 500 (0.05%)
+        const stablecoins = [
+            '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', // USDC
+            '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8', // USDC.e
+            '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', // USDT
+            '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1'  // DAI
+        ].map(a => a.toLowerCase());
+
+        const aIsStable = stablecoins.includes(tokenA.toLowerCase());
+        const bIsStable = stablecoins.includes(tokenB.toLowerCase());
+
+        // Par de stablecoins: fee baixa
+        if (aIsStable && bIsStable) return 100;
+
+        // Um é stablecoin: fee média
+        if (aIsStable || bIsStable) return 500;
+
+        // Ambos voláteis: fee alta
+        return 3000;
     }
 
     getReserveInfo(address: string): ReserveInfo | undefined {
