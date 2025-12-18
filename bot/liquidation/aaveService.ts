@@ -488,8 +488,8 @@ export class AaveService {
         opportunity: LiquidationOpportunity,
         signer: Wallet
     ): Promise<string | null> {
-        // Usar Flash Loan se contrato configurado
-        if (BOT_CONFIG.flashLoanContractAddress) {
+        // Usar Flash Loan se habilitado E contrato configurado
+        if (BOT_CONFIG.useFlashLoan && BOT_CONFIG.flashLoanContractAddress) {
             return this.executeLiquidationWithFlashLoan(opportunity, signer);
         }
 

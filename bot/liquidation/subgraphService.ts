@@ -57,7 +57,8 @@ export interface SubgraphConfig {
 // ============================================================================
 
 const DEFAULT_CONFIG: SubgraphConfig = {
-    aaveEndpoint: 'https://api.thegraph.com/subgraphs/name/aave/protocol-v3-arbitrum',
+    // Updated Dec 2024: Using Graph Studio endpoint (hosted service deprecated)
+    aaveEndpoint: 'https://api.studio.thegraph.com/query/42519/aave-v3-arbitrum/version/latest',
     batchSize: 1000,
     minBorrowUsd: 100,
     maxHealthFactor: 1.5,
@@ -71,16 +72,18 @@ const DEFAULT_CONFIG: SubgraphConfig = {
     incrementalBlocksBack: 1000 // ~4 minutos em Arbitrum
 };
 
-// Alternative endpoints (updated Dec 2025)
-// The Graph hosted service was deprecated - using decentralized network + alternatives
+// Alternative endpoints (updated Dec 2024)
+// The Graph hosted service was deprecated - using Graph Studio + decentralized network
 const SUBGRAPH_ENDPOINTS = [
-    // Messari Aave V3 Arbitrum (free, no auth required)
-    'https://api.thegraph.com/subgraphs/name/messari/aave-v3-arbitrum',
-    // Graph Studio (may require API key in future)
+    // Graph Studio - Aave official (FREE, recommended)
+    'https://api.studio.thegraph.com/query/42519/aave-v3-arbitrum/version/latest',
+    // Alternative Graph Studio deployment
     'https://api.studio.thegraph.com/query/47555/aave-v3-arbitrum/version/latest',
-    // Backup: try original Aave endpoint
-    'https://api.thegraph.com/subgraphs/name/aave/protocol-v3-arbitrum',
-];
+    // Decentralized Gateway (requires API key - set THEGRAPH_API_KEY env var)
+    process.env.THEGRAPH_API_KEY
+        ? `https://gateway-arbitrum.network.thegraph.com/api/${process.env.THEGRAPH_API_KEY}/subgraphs/id/Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g`
+        : '',
+].filter(url => url.length > 0);
 
 // ============================================================================
 // SUBGRAPH SERVICE CLASS

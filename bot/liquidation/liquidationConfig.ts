@@ -78,7 +78,9 @@ export const BOT_CONFIG = {
     maxUsersPerBatch: 100,
     healthFactorThreshold: 1.0,
     maxLiquidationPercent: 0.5, // 50% max por liquidacao
-    flashLoanContractAddress: process.env.FLASH_LOAN_CONTRACT_ADDRESS,
+    // Usa FLASH_LOAN_LIQUIDATOR_ADDRESS para liquidações, fallback para FLASH_LOAN_CONTRACT_ADDRESS
+    flashLoanContractAddress: process.env.FLASH_LOAN_LIQUIDATOR_ADDRESS || process.env.FLASH_LOAN_CONTRACT_ADDRESS,
+    useFlashLoan: process.env.USE_FLASH_LOAN === 'true',
 };
 
 // ============================================================================
@@ -97,8 +99,8 @@ export const OPTIMIZATION_CONFIG = {
     // Usar Subgraph para descoberta (GRATUITO vs eventos blockchain)
     useSubgraph: process.env.USE_SUBGRAPH !== 'false',
 
-    // Subgraph URL (The Graph - hospedado, gratuito)
-    subgraphUrl: process.env.AAVE_SUBGRAPH_URL || 'https://api.thegraph.com/subgraphs/name/aave/protocol-v3-arbitrum',
+    // Subgraph URL (The Graph Studio - gratuito, hosted service deprecado)
+    subgraphUrl: process.env.AAVE_SUBGRAPH_URL || 'https://api.studio.thegraph.com/query/42519/aave-v3-arbitrum/version/latest',
 
     // Intervalo de refresh do Subgraph em ms
     subgraphRefreshMs: parseInt(process.env.SUBGRAPH_REFRESH_INTERVAL_MS || '120000'),

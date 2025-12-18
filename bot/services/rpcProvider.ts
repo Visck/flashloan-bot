@@ -38,21 +38,11 @@ const DEFAULT_RPCS: RpcConfig[] = [
         priority: 3,
     },
     {
-        name: 'DRPC',
-        url: 'https://arbitrum.drpc.org',
-        wssUrl: 'wss://arbitrum.drpc.org',
-        priority: 4,
-    },
-    {
-        name: 'MeowRPC',
-        url: 'https://arbitrum.meowrpc.com',
-        priority: 5,
-    },
-    {
         name: 'Arbitrum Official',
         url: 'https://arb1.arbitrum.io/rpc',
-        priority: 6,
+        priority: 4,
     },
+    // DRPC e MeowRPC removidos - limite de 3 requests por batch na tier gratuita
 ];
 
 export class MultiRpcProvider {
